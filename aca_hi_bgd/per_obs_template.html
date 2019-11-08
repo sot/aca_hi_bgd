@@ -1,0 +1,60 @@
+<HTML>
+<HEADER>
+<style type="text/css">
+img { image-rendering: pixelated }
+</style>
+
+
+</HEADER>
+<BODY>
+<H1>High background events in obsid {{ obsid }}</H1>
+
+<H2>Summary of background events with bgdavg plots</H2>
+Each entry in the table is a link to a section on the page with slot images.
+<TABLE border=1>
+{% for event in events %}
+<TABLE border=1>
+<tr>
+<td><A HREF="#{{ event['index']}}"><img src={{ event['bgdplot'] }}></A></td>
+<td><TABLE border=1>
+<tr><td>start of bgdavg > 100</td><td>{{event['event_datestart']}}</td></tr>
+<tr><td>duration</td><td>{{event['duration']}}</td></tr>
+<tr><td>slot_seconds</td><td>{{event['slot_seconds']}}</td></tr>
+</TABLE></td>
+</tr>
+</TABLE>
+{% endfor %}
+</TABLE>
+
+{% for event in events %}
+<HR></HR>
+<A id="{{ event['index'] }}"</A>
+<h3>Event {{event['index']}} starting at {{event['event_datestart']}}</h3>
+<TABLE border=1>
+<tr>
+<td><TABLE border=1>
+<tr><td>start of bgdavg > 100</td><td>{{event['event_tstart']}}</td></tr>
+<tr><td>duration</td><td>{{event['duration']}}</td></tr>
+<tr><td>slot_seconds</td><td>{{event['slot_seconds']}}</td></tr>
+</TABLE>
+</td>
+<td><img src={{ event['bgdplot'] }}></td>
+<td><img src={{ event['aokalstr'] }}></td>
+</tr>
+</TABLE>
+<TABLE border=1>
+{% for row in event['imgrows'] %}
+<tr><td>{{ row['rowsecs'] }}<br />{{ row['rowdate'] }}</td>
+<td colspan="8"><img src="{{ row['img'] }}" width=864 height=96></td></tr>
+<tr><td>BGDAVG</td>
+{% for slot in row['slots'] %}
+<td width="100px">{{ slot.bgdavg }}</td>
+{%- endfor %}
+</tr>
+{%- endfor %}
+</TABLE>
+{%- endfor %}
+
+
+</BODY>
+</HTML>
