@@ -550,7 +550,7 @@ def main():
             url = f"{opt.web_url}/events/obs_{obsid:05d}/index.html"
             logger.warning(f"HI BGD event at in obsid {obsid} {url}")
             if len(opt.emails) > 0:
-                send_mail(logger, opt, 'ACA HI BGD event in obsid {obsid}',
+                send_mail(logger, opt, f'ACA HI BGD event in obsid {obsid}',
                           f'HI BGD in obsid {obsid} report at {url}',
                           __file__)
 
