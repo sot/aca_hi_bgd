@@ -42,7 +42,7 @@ def get_opt(args=None):
     parser.add_argument("--email",
                         action='append',
                         dest='emails',
-                        default=['jconnelly@cfa.harvard.edu'],
+                        default=['aca_alert@cfa.harvard.edu'],
                         help="Email address for notificaion")
     args = parser.parse_args()
     return args
