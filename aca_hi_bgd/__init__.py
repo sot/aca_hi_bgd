@@ -1,5 +1,7 @@
+import ska_helpers
 
-__version__ = 0.1.1
+__version__ = ska_helpers.get_version(__package__)
+
 
 def test(*args, **kwargs):
     """
