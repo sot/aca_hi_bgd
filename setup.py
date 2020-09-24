@@ -1,8 +1,6 @@
+# Licensed under a 3-clause BSD style license - see LICENSE.rst
 import os
 import sys
-# Licensed under a 3-clause BSD style license - see LICENSE.rst
-from aca_hi_bgd import __version__
-
 from setuptools import setup
 
 try:
@@ -26,7 +24,7 @@ setup(name='aca_hi_bgd',
       author='Jean Connelly, Tom Aldcroft',
       description='ACA hi background monitor',
       author_email='jconnelly@cfa.harvard.edu',
-      version=__version__,
+      use_scm_version=True,
       zip_safe=False,
       packages=['aca_hi_bgd'],
       package_data={'aca_hi_bgd': ['top_level_template.html', 'per_obs_template.html']},
