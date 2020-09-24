@@ -12,7 +12,7 @@ except ImportError:
 
 
 entry_points = {'console_scripts': [
-        'aca_hi_bgd_update=aca_hi_bgd.update_bgd_events:main']}
+    'aca_hi_bgd_update=aca_hi_bgd.update_bgd_events:main']}
 
 
 if "--user" not in sys.argv:

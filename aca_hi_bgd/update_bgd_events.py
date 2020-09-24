@@ -2,17 +2,16 @@ import os
 from pathlib import Path
 import argparse
 import numpy as np
-from astropy.table import Table, vstack, unique
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from PIL import Image
-from astropy.table import Table, unique, vstack
+from astropy.table import Table, vstack
 from jinja2 import Template
 
 import pyyaks.logger
-from Ska.Numpy import interpolate, smooth
+from Ska.Numpy import interpolate
 from Chandra.Time import DateTime
 from mica.archive import aca_l0
 from kadi import events
@@ -237,7 +236,7 @@ def get_dwell_events(dwell):
     d = dwell
     try:
         obsid = d.get_obsid()
-    except:
+    except Exception:
         obsid = 0
 
     logger.info(f'Checking dwell {d} obsid {obsid} for events')
@@ -269,7 +268,7 @@ def get_dwell_events(dwell):
                 raise ValueError
 
             e = {'slots': ",".join([str(s) for s in event['event_slots']]),
-                 'slots_for_sum':  ",".join([str(s) for s in event['slots_for_sum']]),
+                 'slots_for_sum': ",".join([str(s) for s in event['slots_for_sum']]),
                  'obsid': obsid,
                  'slot_seconds': event['slot_seconds'],
                  'cross_time': cross_time,
@@ -384,7 +383,7 @@ def make_images(start, stop, outdir='out', max_images=200):
             else:
                 # Log scale the images but use a fixed low end at 4
                 logimg = np.log(imgraw)
-                pixvals = 255 * (logimg - 4)/(np.max(logimg) - 4)
+                pixvals = 255 * (logimg - 4) / (np.max(logimg) - 4)
 
             # Scale the image because the browser isn't great at it
             pixvals = np.kron(pixvals, np.ones((int(SIZE / sz),
