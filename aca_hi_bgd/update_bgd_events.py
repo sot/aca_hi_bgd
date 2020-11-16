@@ -528,21 +528,8 @@ def main():
 
     new_events, stop = get_events(start)
     if len(new_events) > 0:
+
         new_events = Table(new_events)
-
-        # Add a null event at the end
-        new_events.add_row()
-        new_events[-1]['obsid'] = -1
-        new_events[-1]['dwell_datestart'] = DateTime(stop).date
-        if len(bgd_events) > 0:
-            bgd_events = vstack([bgd_events, new_events])
-        else:
-            bgd_events = new_events
-
-        bgd_events.write(EVENT_ARCHIVE, format='ascii', overwrite=True)
-
-        make_event_reports(bgd_events, opt.web_out)
-
         for obsid in np.unique(new_events['obsid']):
             if obsid in [0, -1]:
                 continue
@@ -552,6 +539,20 @@ def main():
                 send_mail(logger, opt, f'ACA HI BGD event in obsid {obsid}',
                           f'HI BGD in obsid {obsid} report at {url}',
                           __file__)
+
+    if len(bgd_events) > 0:
+        bgd_events = vstack([bgd_events, new_events])
+    else:
+        bgd_events = new_events
+
+    # Add a null event at the end
+    bgd_events.add_row()
+    bgd_events[-1]['obsid'] = -1
+    bgd_events[-1]['dwell_datestart'] = DateTime(stop).date
+
+    bgd_events.write(EVENT_ARCHIVE, format='ascii', overwrite=True)
+
+    make_event_reports(bgd_events, opt.web_out)
 
 
 if __name__ == '__main__':
