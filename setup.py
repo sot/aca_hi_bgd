@@ -14,7 +14,7 @@ entry_points = {'console_scripts': [
 
 
 if "--user" not in sys.argv:
-    share_path = os.path.join(sys.prefix, "share", "aca_hi_bgd")
+    share_path = os.path.join("share", "aca_hi_bgd")
     data_files = [(share_path, ['task_schedule.cfg'])]
 else:
     data_files = None
