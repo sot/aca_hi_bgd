@@ -41,6 +41,7 @@ def get_opt(args=None):
     parser.add_argument("--email",
                         action='append',
                         dest='emails',
+                        default=[],
                         help="Email address for notificaion")
     args = parser.parse_args()
     return args
@@ -257,6 +258,12 @@ def get_dwell_events(dwell):
     # Get Candidate crossings
     cand_crossings = get_candidate_crossings(slots_data)
 
+    # If there are candidate crossings, get the pitch of this dwell
+    pitch = -999
+    if len(cand_crossings) > 0:
+        pitchs = fetch.Msid('DP_PITCH', d.start, d.stop, stat='5min')
+        pitch = np.median(pitchs.vals)
+
     # Review the crossings and check for slot seconds
     for cross_time in cand_crossings:
         event = get_event_at_crossing(cross_time,
@@ -277,7 +284,8 @@ def get_dwell_events(dwell):
                  'duration': event['tstop'] - event['tstart'],
                  'event_tstart': event['tstart'],
                  'event_tstop': event['tstop'],
-                 'event_datestart': DateTime(event['tstart']).date}
+                 'event_datestart': DateTime(event['tstart']).date,
+                 'pitch': pitch}
             logger.info(
                 f"Updating with {e['duration']} raw event in {obsid} at {e['event_datestart']}")
             bgd_events.append(e)
@@ -451,6 +459,7 @@ def make_event_reports(bgd_events, outdir='.', redo=False):
                'obsid': obsid,
                'reldir': os.path.join("events", "obs_{:05d}".format(obsid)),
                'dir': os.path.join(outdir, "events", "obs_{:05d}".format(obsid)),
+               'pitch': events[0]['pitch'],
                }
         obs_events.append(obs)
 
@@ -502,6 +511,7 @@ def main():
     logger = pyyaks.logger.get_logger(level=opt.log_level)
 
     EVENT_ARCHIVE = os.path.join(opt.data_root, "bgd_events.dat")
+    Path(opt.data_root).mkdir(parents=True, exist_ok=True)
     start = None
 
     bgd_events = []

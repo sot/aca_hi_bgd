@@ -3,7 +3,8 @@
 </HEADER>
 <BODY>
 <TABLE BORDER=1>
-<TR><TH>Date</TH><TH>Obsid</TH><TH>N events</TH><TH>N Slots</TH><TH>Max Duration</TH><TH>Max Slot Seconds</TH></TR>
+<TR><TH>Date</TH><TH>Obsid</TH><TH>N events</TH><TH>N Slots</TH>
+    <TH>Max Duration</TH><TH>Max Slot Seconds</TH><TH>Sun Pitch</TH></TR>
 {% for obs in obs_events %}
 <TR>
 <TD>{{ obs['datestart'] }}</TD>
@@ -12,6 +13,7 @@
 <TD ALIGN="right">{{ obs['n_slots']}}</TD>
 <TD ALIGN="right">{{ '%.1f'|format(obs['max_dur'])}}</TD>
 <TD ALIGN="right">{{ '%.1f'|format(obs['max_slot_secs']) }}</TD>
+<TD ALIGN="right">{{ '%.1f'|format(obs['pitch']) }}</TD>
 </TR>
 {% endfor %}
 </TABLE>
