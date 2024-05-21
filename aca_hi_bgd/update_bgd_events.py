@@ -270,14 +270,13 @@ def get_background(slot_data):
     bgd = np.where(slot_data['IMGSIZE'] == 8,
                    outer_min,
                    slot_data['BGDAVG'])
-    bgd = slot_data['BGDAVG']
     return bgd, outer_min
 
 
 def get_thresholds(slot_data):
     # Use different thresholds for the two different background methods
     threshold = np.where(slot_data['IMGSIZE'] == 8,
-                         200,
+                         150,
                          200)
     return threshold
 
