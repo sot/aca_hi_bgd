@@ -385,7 +385,7 @@ def get_dwell_events(dwell):
 
 def plot_bgd(e, edir):
     """
-    Make a plot of BGDAVG over an event and save to `edir`.
+    Make a plot of background over an event and save to `edir`.
 
     Presently plots over range from 100 seconds before high threshold crossing to
     300 seconds after high threshold crossing.
@@ -397,16 +397,18 @@ def plot_bgd(e, edir):
     plt.figure(figsize=(4, 4.5))
     max_bgd = 0
     for slot in slots:
-        l0_telem = aca_l0.get_slot_data(e['cross_time'] - 100,
+        l0_telem = Table(aca_l0.get_slot_data(e['cross_time'] - 100,
                                         e['cross_time'] + 300,
                                         imgsize=[4, 6, 8],
-                                        slot=slot)
+                                        slot=slot))
         if len(l0_telem['TIME']) == 0:
             raise ValueError
+        bgd, _ = get_background(l0_telem)
+        l0_telem['bgd'] = bgd
         ok = (l0_telem['QUALITY'] == 0) & (l0_telem['IMGFUNC1'] == 1)
         if np.count_nonzero(ok) > 0:
-            plot_cxctime(l0_telem['TIME'][ok], l0_telem['BGDAVG'][ok], '.', label=f'slot {slot}')
-            max_bgd = max([max_bgd, np.max(l0_telem['BGDAVG'][ok])])
+            plot_cxctime(l0_telem['TIME'][ok], l0_telem['bgd'][ok], '.', label=f'slot {slot}')
+            max_bgd = max([max_bgd, np.max(l0_telem['bgd'][ok])])
     plt.title("Hi BGD obsid {}\n start {}".format(e['obsid'], DateTime(e['event_tstart']).date),
               fontsize='small')
     plt.legend(numpoints=1, fontsize='x-small')
@@ -456,6 +458,7 @@ def make_images(start, stop, outdir='out', max_images=200):
         slotdata[slot] = Table(
             aca_l0.get_slot_data(start.secs - 20, stop.secs + 20, slot=slot).data)
         slotdata[slot]['SLOT'] = slot
+        slotdata[slot]['bgd'], _ = get_background(slotdata[slot])
 
     # Get a list of all the unique times in the set
     times = np.unique(np.concatenate([slotdata[slot]['TIME'].data for slot in range(8)]))
@@ -497,7 +500,7 @@ def make_images(start, stop, outdir='out', max_images=200):
                                  'slot': slot,
                                  'time': dat['TIME'],
                                  'rowsecs': row['rowsecs'],
-                                 'bgdavg': dat['BGDAVG'],
+                                 'bgd': dat['bgd'],
                                  'imgfunc1': dat['IMGFUNC1'],
                                  })
 
