@@ -322,10 +322,15 @@ def get_dwell_events(dwell):
 
     bgd_events = []
 
-    # First, get all the image data
+
     slots_data = {}
     for slot in range(8):
         slots_data[slot] = get_slot_image_data(d.start, d.stop, slot)
+        bgd, outer_min = get_background(slots_data[slot])
+        threshold = get_thresholds(slots_data[slot])
+        slots_data[slot]['outer_min'] = outer_min
+        slots_data[slot]['bgd'] = bgd
+        slots_data[slot]['threshold'] = threshold
 
     # Check that the image data is complete for the dwell.
     # This assumes that it is sufficient to check slot 3
