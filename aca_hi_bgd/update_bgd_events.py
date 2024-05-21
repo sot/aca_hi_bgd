@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 from astropy.table import Table, vstack
 from jinja2 import Template
+from numpy.lib.stride_tricks import sliding_window_view
 
 import pyyaks.logger
 from Ska.Numpy import interpolate
@@ -293,7 +294,6 @@ def get_max_of_mins(slots_data, col):
         ok = (slot_data['QUALITY'] == 0) & (slot_data['IMGFUNC1'] == 1)
 
         # calculate rolling minumum with a 3 sample window
-        from numpy.lib.stride_tricks import sliding_window_view
         if len(slot_data[col][ok]) < 3:
             continue
         rolling_min = np.min(sliding_window_view(slot_data[col][ok], 3), axis=-1)
