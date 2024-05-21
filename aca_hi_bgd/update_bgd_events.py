@@ -340,8 +340,6 @@ def get_dwell_events(dwell):
 
     max_of_mins_BGDAVG = get_max_of_mins(slots_data, 'BGDAVG')
     max_of_mins_outer_min = get_max_of_mins(slots_data, 'outer_min')
-    print(f"BGDAVG mm {max_of_mins_BGDAVG}")
-    print(f"OM MM {max_of_mins_outer_min}")
 
     # Get Candidate crossings
     cand_crossings = get_candidate_crossings(slots_data)
