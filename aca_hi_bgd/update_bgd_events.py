@@ -63,14 +63,13 @@ def get_slot_image_data(start, stop, slot):
     return Table(slot_data)
 
 
-def get_candidate_crossings(slots_data, threshold=200):
+def get_candidate_crossings(slots_data):
     """
     Check the BGDAVG in the image data in all slots for a dwell for values greater than
     threshold, and if the threshold crossings are consecutive for 3 or more
     samples, add to a list of candidate events.
 
     :param slots_data: dict of tables of L0 data including BGDAVG
-    :param threshold: threshold in DN
     :returns: list of cxc times of potential events
     """
     # Check for background crossings
@@ -78,7 +77,7 @@ def get_candidate_crossings(slots_data, threshold=200):
     for slot in range(8):
         slot_data = slots_data[slot]
         ok = (slot_data['QUALITY'] == 0) & (slot_data['IMGFUNC1'] == 1)
-        overs = np.flatnonzero(ok & (slot_data['BGDAVG'] > threshold))
+        overs = np.flatnonzero(ok & (slot_data['bgd'] > slot_data['threshold']))
         if len(overs) < 3:
             continue
         consec = consecutive(overs)
@@ -120,11 +119,11 @@ def get_event_at_crossing(cross_time, slots_data, thresh=100):
                     (slot_data['TIME'] <= (cross_time + 300)) &
                     (slot_data['QUALITY'] == 0) &
                     (slot_data['IMGFUNC1'] == 1) &
-                    (slot_data['BGDAVG'] > thresh))
+                    (slot_data['bgd'] > thresh))
         if np.count_nonzero(count_ok) == 0:
             continue
         event['max_bgd'] = max(event['max_bgd'],
-                               np.max(slot_data['BGDAVG'].data[count_ok]))
+                               np.max(slot_data['bgd'].data[count_ok]))
         imgsize = slot_data['IMGSIZE'].data[count_ok]
         dts = np.ones(len(imgsize)) * 1.025
         not4 = imgsize != 4
@@ -136,9 +135,9 @@ def get_event_at_crossing(cross_time, slots_data, thresh=100):
 
         # Interpolate over bad/missing data again because we didn't save this
         # from the last go
-        bgdavg = slot_data['BGDAVG'].data.copy()
+        bgd = slot_data['bgd'].data.copy()
         ok = (slot_data['QUALITY'] == 0) & (slot_data['IMGFUNC1'] == 1)
-        bgdavg = interpolate(bgdavg[ok], slot_data['TIME'][ok], slot_data['TIME'])
+        bgdavg = interpolate(bgd[ok], slot_data['TIME'][ok], slot_data['TIME'])
         # Clip
         bgdavg.clip(0, 1023)
 
@@ -339,8 +338,14 @@ def get_dwell_events(dwell):
         logger.info(f'Stopping review of dwells at dwell {d.start}, missing image data')
         return [], None
 
+    max_of_mins_BGDAVG = get_max_of_mins(slots_data, 'BGDAVG')
+    max_of_mins_outer_min = get_max_of_mins(slots_data, 'outer_min')
+    print(f"BGDAVG mm {max_of_mins_BGDAVG}")
+    print(f"OM MM {max_of_mins_outer_min}")
+
     # Get Candidate crossings
     cand_crossings = get_candidate_crossings(slots_data)
+
 
     # If there are candidate crossings, get the pitch of this dwell
     pitch = -999
@@ -369,6 +374,8 @@ def get_dwell_events(dwell):
                  'event_tstart': event['tstart'],
                  'event_tstop': event['tstop'],
                  'event_datestart': DateTime(event['tstart']).date,
+                 'max_of_mins_bgdavg': max_of_mins_BGDAVG,
+                 'max_of_mins_outer_min': max_of_mins_outer_min,
                  'pitch': pitch}
             logger.info(
                 f"Updating with {e['duration']} raw event in {obsid} at {e['event_datestart']}")
