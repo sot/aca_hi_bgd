@@ -59,7 +59,7 @@ def get_slot_image_data(start, stop, slot):
         stop,
         imgsize=[4, 6, 8],
         slot=slot,
-        columns=['TIME', 'BGDAVG', 'IMGFUNC1', 'QUALITY', 'IMGSIZE'])
+        columns=['TIME', 'BGDAVG', 'IMGFUNC1', 'QUALITY', 'IMGRAW', 'IMGSIZE'])
     return Table(slot_data)
 
 
@@ -224,6 +224,83 @@ def get_events(start, stop=None):
                 bgd_events = dwell_events
 
     return bgd_events, stop_with_data
+
+
+def get_outer_min(slot_data):
+
+    data_len = len(slot_data['TIME'])
+
+    # initialize outer min to large value
+    outer_min = np.ones(data_len) * 1024
+
+    ok = slot_data['IMGSIZE'] == 8
+    ok_len = np.count_nonzero(ok)
+
+    if ok_len == 0:
+        return outer_min
+
+    # Make a mask to get just the edges of the 8x8 numpy array
+    mask = np.zeros((8, 8), dtype=bool)
+    mask[0, :] = True
+    mask[-1, :] = True
+    mask[:, 0] = True
+    mask[:, -1] = True
+    # Add the 6x6 corners?
+    mask[1, 1] = True
+    mask[1, -2] = True
+    mask[-2, 1] = True
+    mask[-2, -2] = True
+
+    flat_mask = mask.flatten()
+    used_pix = np.count_nonzero(flat_mask)
+    tile_mask = np.tile(flat_mask, (ok_len, 1))
+    raw_data = slot_data['IMGRAW'].data[ok]
+
+    outer_min[ok] = (
+        np.min(raw_data[tile_mask].reshape(ok_len, used_pix), axis=-1))
+
+    return outer_min
+
+
+def get_background(slot_data):
+    # Calculate the outer mins
+    outer_min = get_outer_min(slot_data)
+    # and the background to be used
+    # If the imgsize < 8 it has BGDAVG else it has outer_min
+    bgd = np.where(slot_data['IMGSIZE'] == 8,
+                   outer_min,
+                   slot_data['BGDAVG'])
+    bgd = slot_data['BGDAVG']
+    return bgd, outer_min
+
+
+def get_thresholds(slot_data):
+    # Use different thresholds for the two different background methods
+    threshold = np.where(slot_data['IMGSIZE'] == 8,
+                         200,
+                         200)
+    return threshold
+
+
+def get_max_of_mins(slots_data, col):
+
+    # Get some debug data to try to calibrate what should be used for a
+    # threshold for the BGDAVG and outer_min values.
+    max = 0
+    for slot in range(8):
+        if slot not in slots_data:
+            continue
+        slot_data = slots_data[slot]
+        ok = (slot_data['QUALITY'] == 0) & (slot_data['IMGFUNC1'] == 1)
+
+        # calculate rolling minumum with a 3 sample window
+        from numpy.lib.stride_tricks import sliding_window_view
+        if len(slot_data[col][ok]) < 3:
+            continue
+        rolling_min = np.min(sliding_window_view(slot_data[col][ok], 3), axis=-1)
+        if np.max(rolling_min) > max:
+            max = np.max(rolling_min)
+    return max
 
 
 def get_dwell_events(dwell):
