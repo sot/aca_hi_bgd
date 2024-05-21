@@ -30,12 +30,12 @@ def get_opt(args=None):
     parser.add_argument("--stop",
                         help='Stop date')
     parser.add_argument("--data-root",
-                        default="/proj/sot/ska/data/aca_hi_bgd_mon",
+                        default="/proj/sot/ska/data/aca_hi_bgd_mon_dev",
                         help="Output data directory")
     parser.add_argument("--web-out",
-                        default="/proj/sot/ska/www/ASPECT/aca_hi_bgd_mon/")
+                        default="/proj/sot/ska/www/ASPECT/aca_hi_bgd_mon_dev/")
     parser.add_argument("--web-url",
-                        default="https://cxc.harvard.edu/mta/ASPECT/aca_hi_bgd_mon")
+                        default="https://cxc.harvard.edu/mta/ASPECT/aca_hi_bgd_mon_dev")
     parser.add_argument("--log-level",
                         type=int,
                         default=pyyaks.logger.INFO,
