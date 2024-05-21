@@ -27,6 +27,8 @@ def get_opt(args=None):
     parser = argparse.ArgumentParser(description="High Background event finder")
     parser.add_argument("--start",
                         help='Start date')
+    parser.add_argument("--stop",
+                        help='Stop date')
     parser.add_argument("--data-root",
                         default="/proj/sot/ska/data/aca_hi_bgd_mon",
                         help="Output data directory")
@@ -535,7 +537,7 @@ def main():
     if start is None:
         start = DateTime(-7)
 
-    new_events, stop = get_events(start)
+    new_events, stop = get_events(start, stop=opt.stop)
     if len(new_events) > 0:
 
         new_events = Table(new_events)
