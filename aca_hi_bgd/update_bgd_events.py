@@ -276,7 +276,7 @@ def get_background(slot_data):
 def get_thresholds(slot_data):
     # Use different thresholds for the two different background methods
     threshold = np.where(slot_data['IMGSIZE'] == 8,
-                         150,
+                         100,
                          200)
     return threshold
 
