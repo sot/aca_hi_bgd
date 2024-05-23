@@ -206,8 +206,13 @@ def get_events(start, stop=None):
     if len(dwells) == 0:
         return bgd_events, start.date
 
+    dat = Table.read('/home/jeanconn/git/aca_hi_bgd/bgd_events_annotated.dat', format='ascii')
+    ok = dat['dwell_datestart'] > '2022:200'
+
     stop_with_data = start.date
-    for d in dwells:
+    #for d in dwells:
+    for row in dat[ok]:
+        d = events.dwells.filter(start__exact=row['dwell_datestart'])[0]
         dwell_events, stop = get_dwell_events(d)
         if stop is None:
             if (DateTime() - DateTime(d.stop)) < 7:
@@ -455,7 +460,7 @@ def make_images(start, stop, outdir='out', max_images=200):
         slotdata[slot] = Table(
             aca_l0.get_slot_data(start.secs - 20, stop.secs + 20, slot=slot).data)
         slotdata[slot]['SLOT'] = slot
-        slotdata[slot]['bgd'], _ = get_background(slotdata[slot])
+        slotdata[slot]['bgd'], slotdata[slot]['outer_min'] = get_background(slotdata[slot])
 
     # Get a list of all the unique times in the set
     times = np.unique(np.concatenate([slotdata[slot]['TIME'].data for slot in range(8)]))
@@ -498,6 +503,8 @@ def make_images(start, stop, outdir='out', max_images=200):
                                  'time': dat['TIME'],
                                  'rowsecs': row['rowsecs'],
                                  'bgd': dat['bgd'],
+                                 'bgdavg': dat['BGDAVG'],
+                                 'outer_min': dat['outer_min'],
                                  'imgfunc1': dat['IMGFUNC1'],
                                  })
 
