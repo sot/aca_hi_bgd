@@ -231,7 +231,7 @@ def get_events(start, stop=None):
     return bgd_events, stop_with_data
 
 
-def get_outer_min(slot_data):
+def get_outer_min(slot_data, rank=0):
 
     data_len = len(slot_data['TIME'])
 
@@ -261,8 +261,9 @@ def get_outer_min(slot_data):
     tile_mask = np.tile(flat_mask, (ok_len, 1))
     raw_data = slot_data['IMGRAW'].data[ok]
 
+    # Instead of the min, get the rank-th smallest value
     outer_min[ok] = (
-        np.min(raw_data[tile_mask].reshape(ok_len, used_pix), axis=-1))
+        np.sort(raw_data[tile_mask].reshape(ok_len, used_pix), axis=-1)[:, rank])
 
     return outer_min
 
@@ -275,13 +276,14 @@ def get_background(slot_data):
     bgd = np.where(slot_data['IMGSIZE'] == 8,
                    outer_min,
                    slot_data['BGDAVG'])
+    bgd = slot_data['BGDAVG']
     return bgd, outer_min
 
 
 def get_thresholds(slot_data):
     # Use different thresholds for the two different background methods
     threshold = np.where(slot_data['IMGSIZE'] == 8,
-                         100,
+                         200,
                          200)
     return threshold
 
@@ -332,6 +334,8 @@ def get_dwell_events(dwell):
         bgd, outer_min = get_background(slots_data[slot])
         threshold = get_thresholds(slots_data[slot])
         slots_data[slot]['outer_min'] = outer_min
+        slots_data[slot]['outer_min_3'] = get_outer_min(slots_data[slot], 3)
+        slots_data[slot]['outer_min_7'] = get_outer_min(slots_data[slot], 7)
         slots_data[slot]['bgd'] = bgd
         slots_data[slot]['threshold'] = threshold
 
@@ -376,8 +380,10 @@ def get_dwell_events(dwell):
                  'event_tstart': event['tstart'],
                  'event_tstop': event['tstop'],
                  'event_datestart': DateTime(event['tstart']).date,
-                 'max_of_mins_bgdavg': max_of_mins_BGDAVG,
-                 'max_of_mins_outer_min': max_of_mins_outer_min,
+                 'max_of_mins_bgdavg': get_max_of_mins(slots_data, 'BGDAVG'),
+                 'max_of_mins_outer_min': get_max_of_mins(slots_data, 'outer_min'),
+                 'max_of_mins_outer_min_3': get_max_of_mins(slots_data, 'outer_min_3'),
+                 'max_of_mins_outer_min_7': get_max_of_mins(slots_data, 'outer_min_7'),
                  'pitch': pitch}
             logger.info(
                 f"Updating with {e['duration']} raw event in {obsid} at {e['event_datestart']}")
