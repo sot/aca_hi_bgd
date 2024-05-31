@@ -206,12 +206,13 @@ def get_events(start, stop=None):
     if len(dwells) == 0:
         return bgd_events, start.date
 
-    dat = Table.read('/home/jeanconn/git/aca_hi_bgd/bgd_events_annotated.dat', format='ascii')
-    ok = dat['dwell_datestart'] > '2022:200'
+    #dat = Table.read('/home/jeanconn/git/aca_hi_bgd/bgd_events_annotated.dat', format='ascii')
+    #ok = (dat['dwell_datestart'] > '2023:305') & (dat['obsid'] != 0) & (dat['obsid'] != -1)
 
     stop_with_data = start.date
-    #for d in dwells:
-    for row in dat[ok]:
+    for d in dwells:
+    #for row in dat[ok]:
+        print(row['dwell_datestart'])
         d = events.dwells.filter(start__exact=row['dwell_datestart'])[0]
         dwell_events, stop = get_dwell_events(d)
         if stop is None:
@@ -276,14 +277,14 @@ def get_background(slot_data):
     bgd = np.where(slot_data['IMGSIZE'] == 8,
                    outer_min,
                    slot_data['BGDAVG'])
-    bgd = slot_data['BGDAVG']
+    #bgd = slot_data['BGDAVG']
     return bgd, outer_min
 
 
 def get_thresholds(slot_data):
     # Use different thresholds for the two different background methods
     threshold = np.where(slot_data['IMGSIZE'] == 8,
-                         200,
+                         125,
                          200)
     return threshold
 
@@ -302,7 +303,7 @@ def get_max_of_mins(slots_data, col):
         # calculate rolling minumum with a 3 sample window
         if len(slot_data[col][ok]) < 3:
             continue
-        rolling_min = np.min(sliding_window_view(slot_data[col][ok], 3), axis=-1)
+        rolling_min = np.min(sliding_window_view(slot_data[col][ok], 2), axis=-1)
         if np.max(rolling_min) > max:
             max = np.max(rolling_min)
     return max
@@ -346,8 +347,6 @@ def get_dwell_events(dwell):
         logger.info(f'Stopping review of dwells at dwell {d.start}, missing image data')
         return [], None
 
-    max_of_mins_BGDAVG = get_max_of_mins(slots_data, 'BGDAVG')
-    max_of_mins_outer_min = get_max_of_mins(slots_data, 'outer_min')
 
     # Get Candidate crossings
     cand_crossings = get_candidate_crossings(slots_data)
