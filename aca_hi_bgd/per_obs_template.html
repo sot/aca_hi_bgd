@@ -7,6 +7,9 @@ img { image-rendering: pixelated }
 
 </HEADER>
 <BODY>
+
+<A HREF="../../index.html">Back to index</A>
+
 <H1>High background events in obsid {{ obsid }}</H1>
 
 <H2>Summary of background events with bgdavg plots</H2>
@@ -17,7 +20,7 @@ Each entry in the table is a link to a section on the page with slot images.
 <tr>
 <td><A HREF="#{{ event['index']}}"><img src={{ event['bgdplot'] }}></A></td>
 <td><TABLE border=1>
-<tr><td>start of bgdavg > 100</td><td>{{event['event_datestart']}}</td></tr>
+<tr><td>start of high bgd</td><td>{{event['event_datestart']}}</td></tr>
 <tr><td>duration</td><td>{{event['duration']}}</td></tr>
 <tr><td>slot_seconds</td><td>{{event['slot_seconds']}}</td></tr>
 </TABLE></td>
@@ -30,10 +33,11 @@ Each entry in the table is a link to a section on the page with slot images.
 <HR></HR>
 <A id="{{ event['index'] }}"</A>
 <h3>Event {{event['index']}} starting at {{event['event_datestart']}}</h3>
+<p>aca_view --start {{event['event_tstart'] - 60}} --stop {{event['event_tstop'] + 60}}</p>
 <TABLE border=1>
 <tr>
 <td><TABLE border=1>
-<tr><td>start of bgdavg > 100</td><td>{{event['event_tstart']}}</td></tr>
+<tr><td>start of high bgd</td><td>{{event['event_tstart']}}</td></tr>
 <tr><td>duration</td><td>{{event['duration']}}</td></tr>
 <tr><td>slot_seconds</td><td>{{event['slot_seconds']}}</td></tr>
 </TABLE>
