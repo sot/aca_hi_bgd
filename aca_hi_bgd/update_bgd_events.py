@@ -86,6 +86,33 @@ def get_slot_image_data(start, stop, slot):
     return Table(slot_data)
 
 
+# this comes from the simple fit to DC averages, with fixed T_CCD=265.15
+def get_exponent(dc):
+    t = 265.15
+    dc, t = np.broadcast_arrays(dc, t)
+    shape = dc.shape
+    t = np.atleast_1d(t)
+    dc = np.atleast_1d(dc).copy()
+    dc[np.isnan(dc)] = 20
+    dc[(dc < 20)] = 20
+    dc[(dc > 1e4)] = 1e4
+    log_dc = np.log(dc)
+    a, b, c, d, e = [
+        -4.88802057e00,
+        -1.66791619e-04,
+        -2.22596103e-01,
+        -2.45720364e-03,
+        1.90718453e-01,
+    ]
+    y = log_dc - e * t
+    return (a + b * t + c * y + d * y**2).reshape(shape)
+
+
+def get_img_scaled(img, t_ccd, t_ref):
+    """Get img taken at ``t_ccd`` scaled to reference temperature ``t_ref``"""
+    return img * np.exp(get_exponent(img) * (t_ref - t_ccd))
+
+
 def exceeds_6x6(slot_data):
     ok = (
         (slot_data["QUALITY"] == 0)
@@ -126,12 +153,18 @@ def exceeds_8x8(slot_data):
     )
     hits = np.zeros(len(slot_data), dtype=bool)
 
-    outer_min = slot_data["outer_min_7"]
+    outer_min = slot_data["outer_min_7_medsub"]
     col_median = np.median(outer_min[ok])
 
-    # For the outer_min, use a threshold of 25 DN above the median
-    threshold_rel = col_median + 40
-    hits[ok] = outer_min[ok] > threshold_rel
+    # For the outer_min, use a threshold the max 40DN or
+    # an multiple of a measure of the spread of the data.
+    threshold_rel = 3 * (
+        np.percentile(slot_data[ok]["outer_min_7"], 95)
+        - np.percentile(slot_data[ok]["outer_min_7"], 50)
+    )
+
+    threshold = np.max(col_median + 40, col_median + threshold_rel)
+    hits[ok] = outer_min[ok] > threshold
 
     return hits
 
@@ -339,15 +372,8 @@ def get_events(start, stop=None, outdir=None):
     if len(dwells) == 0:
         return bgd_events, start.date
 
-    # dat = Table.read('/home/jeanconn/git/aca_hi_bgd/bgd_events_annotated.dat', format='ascii')
-    # ok = (dat['dwell_datestart'] > '2022:100') & (dat['obsid'] != 0) & (dat['obsid'] != -1)
-
     stop_with_data = start.date
     for d in dwells:
-        # for dwell_datestart in np.unique(dat['dwell_datestart'][ok])[0:5]:
-        # for dwell_datestart in ['2023:331:01:12:18.028']:
-        # print(row['dwell_datestart'])
-        # d = events.dwells.filter(start__exact=dwell_datestart)[0]
         dwell_events, stop = get_dwell_events(d)
         if stop is None:
             if (CxoTime.now() - CxoTime(d.stop)) < 7 * u.day:
@@ -373,7 +399,18 @@ def get_events(start, stop=None, outdir=None):
 
 
 def get_bg_sub_imgs(ref_time, t_ccd, imgraw, imgrow0, imgcol0):
-    dark = get_dark_backgrounds(ref_time, t_ccd, imgrow0, imgcol0)
+    dark_raw, dark_cal = get_dark_backgrounds(ref_time, imgrow0, imgcol0)
+
+    dark = np.zeros((len(dark_raw), 8, 8), dtype=np.float64)
+
+    # scales = dark_temp_scale(dark_cal['t_ccd'], t_ccd)
+    # dark = dark_raw * scales[:, None, None]
+
+    # Scale the dark current at each dark cal 8x8 image to the ccd temperature
+    for i, (eight, t_ccd_i) in enumerate(zip(dark_raw, t_ccd, strict=True)):
+        img_sc = get_img_scaled(eight, dark_cal["t_ccd"], t_ccd_i)
+        dark[i] = img_sc
+
     img_len = len(imgraw)
     img_sub = imgraw - dark.reshape(img_len, 64) * 1.696 / 5
     img_sub.clip(0, None)
