@@ -1,25 +1,23 @@
+import argparse
 import os
 from pathlib import Path
-import argparse
-import numpy as np
 
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from PIL import Image
-from astropy.table import Table, vstack
-from jinja2 import Template
-
 import pyyaks.logger
-from Ska.Numpy import interpolate
-from Chandra.Time import DateTime
-from mica.archive import aca_l0
-from kadi import events
-from Ska.Matplotlib import plot_cxctime
-from Ska.engarchive import fetch
 from acdc.common import send_mail
-
+from astropy.table import Table, vstack
+from Chandra.Time import DateTime
+from jinja2 import Template
+from kadi import events
+from mica.archive import aca_l0
+from PIL import Image
+from Ska.engarchive import fetch
+from Ska.Matplotlib import plot_cxctime
+from Ska.Numpy import interpolate
 
 logger = None
 
