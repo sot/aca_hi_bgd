@@ -68,6 +68,8 @@ def get_slot_image_data(start, stop, slot):
 
 def get_candidate_crossings(slots_data, threshold=200):
     """
+    Find times when BGDAVG crosses a threshold
+
     Check the BGDAVG in the image data in all slots for a dwell for values greater than
     threshold, and if the threshold crossings are consecutive for 3 or more
     samples, add to a list of candidate events.
@@ -96,6 +98,8 @@ def get_candidate_crossings(slots_data, threshold=200):
 
 def get_event_at_crossing(cross_time, slots_data, thresh=100):
     """
+    Get background event data at each crossing
+
     Review BGDAVG around a high threshold crossing (from get_candidate_crossings)
     and count "slot seconds" in all slots in a time range around that event
     where those samples have values above a low threshold (100).
@@ -168,6 +172,8 @@ def get_event_at_crossing(cross_time, slots_data, thresh=100):
 
 def combine_events(events, tol=30):
     """
+    Combine events
+
     For a list of dictionaries of events, combine them if they are continuous
     with gaps up to `tol`.  Dictionaries are combined by extending the end time
     of a "previous" event (and associated overall duration).  To avoid double-
@@ -201,6 +207,8 @@ def combine_events(events, tol=30):
 
 def get_events(start, stop=None):
     """
+    Get high background events in a time range
+
     Loop over the kadi dwells in a time range and check for high background
     events (using L0 BGDAVG) in each dwell.
 
@@ -208,7 +216,7 @@ def get_events(start, stop=None):
     :param stop: stop time used in filter for end of dwell range to check
     :returns: tuple (astropy table of high background events, end time of checked range)
     """
-    global logger
+    global logger  # NOQA
     if logger is None:
         logger = pyyaks.logger.get_logger(level=pyyaks.logger.DEBUG)
     start = DateTime(start)
@@ -452,6 +460,8 @@ def make_images(start, stop, outdir="out", max_images=200):
 
 def make_event_reports(bgd_events, outdir=".", redo=False):
     """
+    Make event reports
+
     For a table of background events, make a high level summary report
     by obsid and make an individual obsid report for each.
 
@@ -531,10 +541,13 @@ def make_event_reports(bgd_events, outdir=".", redo=False):
 
 def main():
     """
+    Do high background processing
+
     Review kadi dwells for new high background events, update a text file table of
     those events, make reports, and notify via email as needed.
     """
-    global logger
+
+    global logger  # NOQA
 
     opt = get_opt()
     logger = pyyaks.logger.get_logger(level=opt.log_level)
