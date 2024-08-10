@@ -1,7 +1,4 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
-import os
-import sys
-
 from setuptools import setup
 
 try:
@@ -15,13 +12,6 @@ entry_points = {
 }
 
 
-if "--user" not in sys.argv:
-    share_path = os.path.join("share", "aca_hi_bgd")
-    data_files = [(share_path, ["task_schedule.cfg"])]
-else:
-    data_files = None
-
-
 setup(
     name="aca_hi_bgd",
     author="Jean Connelly, Tom Aldcroft",
@@ -30,11 +20,16 @@ setup(
     use_scm_version=True,
     setup_requires=["setuptools_scm", "setuptools_scm_git_archive"],
     zip_safe=False,
-    packages=["aca_hi_bgd"],
-    package_data={"aca_hi_bgd": ["top_level_template.html", "per_obs_template.html"]},
+    packages=["aca_hi_bgd", "aca_hi_bgd.tests"],
+    package_data={
+        "aca_hi_bgd": [
+            "top_level_template.html",
+            "per_obs_template.html",
+            "task_schedule.cfg",
+        ]
+    },
     tests_require=["pytest"],
     cmdclass=cmdclass,
-    data_files=data_files,
     entry_points=entry_points,
     include_package_data=True,
 )

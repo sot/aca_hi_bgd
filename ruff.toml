@@ -2,6 +2,7 @@ extend = "ruff-base.toml"
 
 # These are files to exclude for this project.
 extend-exclude = [
+   "*.ipynb",
   # "**/*.ipynb",  # commonly not ruff-compliant
 ]
 

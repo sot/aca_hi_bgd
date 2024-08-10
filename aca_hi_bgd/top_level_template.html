@@ -1,21 +1,44 @@
 <HTML>
-<HEADER>
-</HEADER>
-<BODY>
+    <HEADER>
+        <html>
+            <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+
+      <title>ACA High Background Monitor</title>
+
+    </HEADER>
+    <BODY>
+            <!--#include virtual="/incl/header.html"-->
+
+<H4>High Background Anomaly Events</H4>
+
+{{ events_top_html }}
+<br>
+{{ events_by_pitch_html }}
+
+
 <TABLE BORDER=1>
-<TR><TH>Date</TH><TH>Obsid</TH><TH>N events</TH><TH>N Slots</TH>
-    <TH>Max Duration</TH><TH>Max Slot Seconds</TH><TH>Sun Pitch</TH></TR>
+<TR><TH>Dwell Start</TH><TH>Obsid</TH><TH>N events</TH><TH>N Slots</TH>
+    <TH>Max Duration</TH><TH>Max Slot Seconds</TH><TH>Sun Pitch</TH><TH>NOTES</TH></TR>
 {% for obs in obs_events %}
 <TR>
-<TD>{{ obs['datestart'] }}</TD>
+<TD ALIGN="left"><A HREF="{{obs['reldir']}}/index.html">{{obs['dwell_datestart']}}</A></TD>
 <TD ALIGN="right"><A HREF="{{obs['reldir']}}/index.html">{{obs['obsid']}}</A></TD>
 <TD ALIGN="right">{{ obs['n_events'] }}</TD>
 <TD ALIGN="right">{{ obs['n_slots']}}</TD>
 <TD ALIGN="right">{{ '%.1f'|format(obs['max_dur'])}}</TD>
 <TD ALIGN="right">{{ '%.1f'|format(obs['max_slot_secs']) }}</TD>
 <TD ALIGN="right">{{ '%.1f'|format(obs['pitch']) }}</TD>
+<TD ALIGN="right">{{ obs['notes'] }}</TD>
 </TR>
 {% endfor %}
 </TABLE>
+
+<script
+src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"
+integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p"
+crossorigin="anonymous">
+</script>
 </BODY>
 </HTML>
