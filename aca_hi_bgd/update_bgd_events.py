@@ -14,12 +14,12 @@ import matplotlib.pyplot as plt
 import numba
 from acdc.common import send_mail
 from astropy.table import Table, vstack
-from cheta import fetch
+from cheta import fetch, fetch_sci
 from cxotime import CxoTime
 from jinja2 import Template
 from kadi import events
 from mica.archive import aca_l0
-from mica.archive.aca_dark.dark_cal import get_dark_cal_image
+from mica.archive.aca_dark.dark_cal import get_dark_cal_props
 from numpy.lib.stride_tricks import sliding_window_view
 from PIL import Image
 from ska_helpers.logging import basic_logger
@@ -83,7 +83,14 @@ def get_slot_image_data(start, stop, slot):
             "IMGCOL0",
         ],
     )
-    return Table(slot_data)
+
+    slot_data = Table(slot_data)
+    aacccdpt = fetch_sci.Msid("AACCCDPT", start, stop)
+
+    slot_data["AACCCDPT"] = interpolate(
+        aacccdpt.vals, aacccdpt.times, slot_data["TIME"]
+    )
+    return slot_data
 
 
 # this comes from the simple fit to DC averages, with fixed T_CCD=265.15
@@ -163,7 +170,7 @@ def exceeds_8x8(slot_data):
         - np.percentile(slot_data[ok]["outer_min_7"], 50)
     )
 
-    threshold = np.max(col_median + 40, col_median + threshold_rel)
+    threshold = np.max([col_median + 40, col_median + threshold_rel])
     hits[ok] = outer_min[ok] > threshold
 
     return hits
@@ -441,13 +448,13 @@ def get_outer_min(imgs, rank=0):
     return outer_min
 
 
-def get_dark_backgrounds(ref_time, t_ccd, imgrow0, imgcol0):
+def get_dark_backgrounds(ref_time, imgrow0, imgcol0):
     # Get the nearest dark cal image
     # This is cached in the mica code
-    dark_cal = get_dark_cal_image(
+    dark_cal = get_dark_cal_props(
         ref_time,
         "nearest",
-        t_ccd_ref=t_ccd,
+        include_image=True,
         aca_image=False,
     )
 
@@ -458,9 +465,11 @@ def get_dark_backgrounds(ref_time, t_ccd, imgrow0, imgcol0):
                 array_out[i] = array_in[row[i] : row[i] + 8, col[i] : col[i] + 8]
 
     # subtract closest dark cal
-    dark = np.zeros([len(imgrow0), 8, 8], dtype=np.float64)
-    staggered_aca_slice(dark_cal.astype(float), dark, 512 + imgrow0, 512 + imgcol0)
-    return dark
+    dark_img = np.zeros([len(imgrow0), 8, 8], dtype=np.float64)
+    staggered_aca_slice(
+        dark_cal["image"].astype(float), dark_img, 512 + imgrow0, 512 + imgcol0
+    )
+    return dark_img, dark_cal
 
 
 def get_background(slot_data):
@@ -505,7 +514,7 @@ def get_background_data(slot_data):
     imgs_8x8_bgsub = np.zeros_like(slot_data["IMGRAW"])
     imgs_8x8_bgsub[ok_8] = get_bg_sub_imgs(
         slot_data["TIME"][0],
-        np.median(slot_data["TEMPCCD"][ok_8]) - 273.15,
+        slot_data["AACCCDPT"][ok_8],
         slot_data["IMGRAW"][ok_8],
         slot_data["IMGROW0"].data.data[ok_8],
         slot_data["IMGCOL0"].data.data[ok_8],
@@ -642,14 +651,23 @@ def plot_bgd(e, edir):
 
     fig, ax = plt.subplots(1, 2, figsize=(6, 2.5))
     for slot in range(8):
+        start = e["cross_time"] - 100
+        stop = e["cross_time"] + 300
         slot_data = Table(
             aca_l0.get_slot_data(
-                e["cross_time"] - 100,
-                e["cross_time"] + 300,
+                start,
+                stop,
                 imgsize=[4, 6, 8],
                 slot=slot,
             )
         )
+        slot_data = Table(slot_data)
+        aacccdpt = fetch_sci.Msid("AACCCDPT", start, stop)
+
+        slot_data["AACCCDPT"] = interpolate(
+            aacccdpt.vals, aacccdpt.times, slot_data["TIME"]
+        )
+
         if len(slot_data["TIME"]) == 0:
             raise ValueError
         bgds = get_background_data(slot_data)
