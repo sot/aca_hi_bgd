@@ -508,13 +508,12 @@ def make_event_reports(bgd_events, outdir=".", redo=False):
     for obs in obs_events:
         if not os.path.exists(obs["dir"]):
             os.makedirs(obs["dir"])
-        else:
-            if redo is False:
-                continue
+        elif redo is False:
+            continue
 
         events = []
         for e in obs["events"]:
-            event = {k: v for k, v in zip(e.colnames, e.as_void())}
+            event = dict(zip(e.colnames, e.as_void(), strict=False))
             (event["bgdplot"], event["maxbgd"]) = plot_bgd(event, obs["dir"])
             event["aokalstr"] = plot_aokalstr(event, obs["dir"])
             event["imgrows"] = make_images(
