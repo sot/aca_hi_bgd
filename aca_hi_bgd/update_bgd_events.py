@@ -4,6 +4,7 @@ import argparse
 import numpy as np
 
 import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -25,24 +26,29 @@ logger = None
 
 def get_opt(args=None):
     parser = argparse.ArgumentParser(description="High Background event finder")
-    parser.add_argument("--start",
-                        help='Start date')
-    parser.add_argument("--data-root",
-                        default="/proj/sot/ska/data/aca_hi_bgd_mon",
-                        help="Output data directory")
-    parser.add_argument("--web-out",
-                        default="/proj/sot/ska/www/ASPECT/aca_hi_bgd_mon/")
-    parser.add_argument("--web-url",
-                        default="https://cxc.harvard.edu/mta/ASPECT/aca_hi_bgd_mon")
-    parser.add_argument("--log-level",
-                        type=int,
-                        default=pyyaks.logger.INFO,
-                        help="Logging level (default=info)")
-    parser.add_argument("--email",
-                        action='append',
-                        dest='emails',
-                        default=[],
-                        help="Email address for notificaion")
+    parser.add_argument("--start", help='Start date')
+    parser.add_argument(
+        "--data-root",
+        default="/proj/sot/ska/data/aca_hi_bgd_mon",
+        help="Output data directory",
+    )
+    parser.add_argument("--web-out", default="/proj/sot/ska/www/ASPECT/aca_hi_bgd_mon/")
+    parser.add_argument(
+        "--web-url", default="https://cxc.harvard.edu/mta/ASPECT/aca_hi_bgd_mon"
+    )
+    parser.add_argument(
+        "--log-level",
+        type=int,
+        default=pyyaks.logger.INFO,
+        help="Logging level (default=info)",
+    )
+    parser.add_argument(
+        "--email",
+        action='append',
+        dest='emails',
+        default=[],
+        help="Email address for notificaion",
+    )
     args = parser.parse_args()
     return args
 
@@ -57,7 +63,8 @@ def get_slot_image_data(start, stop, slot):
         stop,
         imgsize=[4, 6, 8],
         slot=slot,
-        columns=['TIME', 'BGDAVG', 'IMGFUNC1', 'QUALITY', 'IMGSIZE'])
+        columns=['TIME', 'BGDAVG', 'IMGFUNC1', 'QUALITY', 'IMGSIZE'],
+    )
     return Table(slot_data)
 
 
@@ -104,25 +111,30 @@ def get_event_at_crossing(cross_time, slots_data, thresh=100):
     :returns: dict of an 'event' associated with the threshold crossings
     """
     sum_slot_seconds = 0
-    event = {'tstart': cross_time,
-             'tstop': cross_time,
-             'max_bgd': 0,
-             'slots_for_sum': {},
-             'event_slots': {}}
+    event = {
+        'tstart': cross_time,
+        'tstop': cross_time,
+        'max_bgd': 0,
+        'slots_for_sum': {},
+        'event_slots': {},
+    }
     for slot in range(8):
         slot_data = slots_data[slot]
 
         # To count as slot_seconds for the event, the record should be
         # valid data in the range of -100 to +300 over the threshold.
-        count_ok = ((slot_data['TIME'] >= (cross_time - 100)) &
-                    (slot_data['TIME'] <= (cross_time + 300)) &
-                    (slot_data['QUALITY'] == 0) &
-                    (slot_data['IMGFUNC1'] == 1) &
-                    (slot_data['BGDAVG'] > thresh))
+        count_ok = (
+            (slot_data['TIME'] >= (cross_time - 100))
+            & (slot_data['TIME'] <= (cross_time + 300))
+            & (slot_data['QUALITY'] == 0)
+            & (slot_data['IMGFUNC1'] == 1)
+            & (slot_data['BGDAVG'] > thresh)
+        )
         if np.count_nonzero(count_ok) == 0:
             continue
-        event['max_bgd'] = max(event['max_bgd'],
-                               np.max(slot_data['BGDAVG'].data[count_ok]))
+        event['max_bgd'] = max(
+            event['max_bgd'], np.max(slot_data['BGDAVG'].data[count_ok])
+        )
         imgsize = slot_data['IMGSIZE'].data[count_ok]
         dts = np.ones(len(imgsize)) * 1.025
         not4 = imgsize != 4
@@ -144,8 +156,9 @@ def get_event_at_crossing(cross_time, slots_data, thresh=100):
         for chunk in consec:
             if len(chunk) == 0:
                 continue
-            if ((slot_data['TIME'][chunk[0]] <= cross_time) &
-                    (slot_data['TIME'][chunk[-1]] >= cross_time)):
+            if (slot_data['TIME'][chunk[0]] <= cross_time) & (
+                slot_data['TIME'][chunk[-1]] >= cross_time
+            ):
                 event['tstart'] = min([event['tstart'], slot_data['TIME'][chunk[0]]])
                 event['tstop'] = max([event['tstop'], slot_data['TIME'][chunk[-1]]])
                 event['event_slots'][slot] = 1
@@ -173,10 +186,13 @@ def combine_events(events, tol=30):
     combined = Table(events[0])
     for e in events[1:]:
         last_event = combined[-1]
-        if ((e['dwell_datestart'] == last_event['dwell_datestart']) and
-                ((e['event_tstart'] - tol) <= last_event['event_tstop'])):
+        if (e['dwell_datestart'] == last_event['dwell_datestart']) and (
+            (e['event_tstart'] - tol) <= last_event['event_tstop']
+        ):
             last_event['event_tstop'] = e['event_tstop']
-            last_event['duration'] = last_event['event_tstop'] - last_event['event_tstart']
+            last_event['duration'] = (
+                last_event['event_tstop'] - last_event['event_tstart']
+            )
             if e['slot_seconds'] > last_event['slot_seconds']:
                 for col in ['cross_time', 'slot_seconds', 'slots_for_sum']:
                     last_event[col] = e[col]
@@ -250,8 +266,9 @@ def get_dwell_events(dwell):
 
     # Check that the image data is complete for the dwell.
     # This assumes that it is sufficient to check slot 3
-    if ((len(slots_data[3]) == 0) or
-            (DateTime(d.stop).secs - slots_data[3]['TIME'][-1]) > 60):
+    if (len(slots_data[3]) == 0) or (
+        DateTime(d.stop).secs - slots_data[3]['TIME'][-1]
+    ) > 60:
         logger.info(f'Stopping review of dwells at dwell {d.start}, missing image data')
         return [], None
 
@@ -266,28 +283,30 @@ def get_dwell_events(dwell):
 
     # Review the crossings and check for slot seconds
     for cross_time in cand_crossings:
-        event = get_event_at_crossing(cross_time,
-                                      slots_data)
+        event = get_event_at_crossing(cross_time, slots_data)
 
         if event['slot_seconds'] >= 20:
             if len(event['event_slots']) == 0:
                 raise ValueError
 
-            e = {'slots': ",".join([str(s) for s in event['event_slots']]),
-                 'slots_for_sum': ",".join([str(s) for s in event['slots_for_sum']]),
-                 'obsid': obsid,
-                 'slot_seconds': event['slot_seconds'],
-                 'cross_time': cross_time,
-                 'dwell_tstart': d.tstart,
-                 'dwell_datestart': d.start,
-                 'max_bgd': event['max_bgd'],
-                 'duration': event['tstop'] - event['tstart'],
-                 'event_tstart': event['tstart'],
-                 'event_tstop': event['tstop'],
-                 'event_datestart': DateTime(event['tstart']).date,
-                 'pitch': pitch}
+            e = {
+                'slots': ",".join([str(s) for s in event['event_slots']]),
+                'slots_for_sum': ",".join([str(s) for s in event['slots_for_sum']]),
+                'obsid': obsid,
+                'slot_seconds': event['slot_seconds'],
+                'cross_time': cross_time,
+                'dwell_tstart': d.tstart,
+                'dwell_datestart': d.start,
+                'max_bgd': event['max_bgd'],
+                'duration': event['tstop'] - event['tstart'],
+                'event_tstart': event['tstart'],
+                'event_tstop': event['tstop'],
+                'event_datestart': DateTime(event['tstart']).date,
+                'pitch': pitch,
+            }
             logger.info(
-                f"Updating with {e['duration']} raw event in {obsid} at {e['event_datestart']}")
+                f"Updating with {e['duration']} raw event in {obsid} at {e['event_datestart']}"
+            )
             bgd_events.append(e)
     return bgd_events, d.stop
 
@@ -306,21 +325,26 @@ def plot_bgd(e, edir):
     plt.figure(figsize=(4, 4.5))
     max_bgd = 0
     for slot in slots:
-        l0_telem = aca_l0.get_slot_data(e['cross_time'] - 100,
-                                        e['cross_time'] + 300,
-                                        imgsize=[4, 6, 8],
-                                        slot=slot)
+        l0_telem = aca_l0.get_slot_data(
+            e['cross_time'] - 100, e['cross_time'] + 300, imgsize=[4, 6, 8], slot=slot
+        )
         if len(l0_telem['TIME']) == 0:
             raise ValueError
         ok = (l0_telem['QUALITY'] == 0) & (l0_telem['IMGFUNC1'] == 1)
         if np.count_nonzero(ok) > 0:
-            plot_cxctime(l0_telem['TIME'][ok], l0_telem['BGDAVG'][ok], '.', label=f'slot {slot}')
+            plot_cxctime(
+                l0_telem['TIME'][ok], l0_telem['BGDAVG'][ok], '.', label=f'slot {slot}'
+            )
             max_bgd = max([max_bgd, np.max(l0_telem['BGDAVG'][ok])])
-    plt.title("Hi BGD obsid {}\n start {}".format(e['obsid'], DateTime(e['event_tstart']).date),
-              fontsize='small')
+    plt.title(
+        "Hi BGD obsid {}\n start {}".format(
+            e['obsid'], DateTime(e['event_tstart']).date
+        ),
+        fontsize='small',
+    )
     plt.legend(numpoints=1, fontsize='x-small')
     plt.tight_layout()
-    plt.margins(.05)
+    plt.margins(0.05)
     plt.ylim([-20, 1100])
     plt.grid()
     filename = "bgdavg_{}.png".format(e['event_datestart'])
@@ -363,11 +387,14 @@ def make_images(start, stop, outdir='out', max_images=200):
     slotdata = {}
     for slot in range(8):
         slotdata[slot] = Table(
-            aca_l0.get_slot_data(start.secs - 20, stop.secs + 20, slot=slot).data)
+            aca_l0.get_slot_data(start.secs - 20, stop.secs + 20, slot=slot).data
+        )
         slotdata[slot]['SLOT'] = slot
 
     # Get a list of all the unique times in the set
-    times = np.unique(np.concatenate([slotdata[slot]['TIME'].data for slot in range(8)]))
+    times = np.unique(
+        np.concatenate([slotdata[slot]['TIME'].data for slot in range(8)])
+    )
     times = times[(times >= (start.secs - 4.5)) & (times <= (stop.secs + 4.5))]
 
     SIZE = 96
@@ -393,22 +420,27 @@ def make_images(start, stop, outdir='out', max_images=200):
                 pixvals = 255 * (logimg - 4) / (np.max(logimg) - 4)
 
             # Scale the image because the browser isn't great at it
-            pixvals = np.kron(pixvals, np.ones((int(SIZE / sz),
-                                                int(SIZE / sz))))
+            pixvals = np.kron(pixvals, np.ones((int(SIZE / sz), int(SIZE / sz))))
             # Set a border for stale data
-            img = (255 * np.ones((108, 108)) if dat['TIME'] < row['rowsecs']
-                   else np.zeros((108, 108)))
+            img = (
+                255 * np.ones((108, 108))
+                if dat['TIME'] < row['rowsecs']
+                else np.zeros((108, 108))
+            )
 
             img[6:102, 6:102] = pixvals
             slot_imgs.append(img)
             # bgcolor = 'gray' if dat['TIME'] < row['rowsecs'] else 'white'
-            row['slots'].append({'stale': (dat['TIME'] < row['rowsecs']),
-                                 'slot': slot,
-                                 'time': dat['TIME'],
-                                 'rowsecs': row['rowsecs'],
-                                 'bgdavg': dat['BGDAVG'],
-                                 'imgfunc1': dat['IMGFUNC1'],
-                                 })
+            row['slots'].append(
+                {
+                    'stale': (dat['TIME'] < row['rowsecs']),
+                    'slot': slot,
+                    'time': dat['TIME'],
+                    'rowsecs': row['rowsecs'],
+                    'bgdavg': dat['BGDAVG'],
+                    'imgfunc1': dat['IMGFUNC1'],
+                }
+            )
 
         im = Image.fromarray(np.hstack(slot_imgs)).convert('RGB')
         imgfilename = "piximg_{}.png".format(row['rowsecs'])
@@ -450,17 +482,18 @@ def make_event_reports(bgd_events, outdir='.', redo=False):
                 slots[int(s)] = 1
 
         # Save the events, the intervals, and some other useful stuff for the per-obsid table
-        obs = {'events': events.copy(),
-               'datestart': DateTime(events[0]['event_tstart']).date,
-               'n_events': len(events),
-               'max_dur': np.max(events['duration']),
-               'max_slot_secs': np.max(events['slot_seconds']),
-               'n_slots': len(slots),
-               'obsid': obsid,
-               'reldir': os.path.join("events", "obs_{:05d}".format(obsid)),
-               'dir': os.path.join(outdir, "events", "obs_{:05d}".format(obsid)),
-               'pitch': events[0]['pitch'],
-               }
+        obs = {
+            'events': events.copy(),
+            'datestart': DateTime(events[0]['event_tstart']).date,
+            'n_events': len(events),
+            'max_dur': np.max(events['duration']),
+            'max_slot_secs': np.max(events['slot_seconds']),
+            'n_slots': len(slots),
+            'obsid': obsid,
+            'reldir': os.path.join("events", "obs_{:05d}".format(obsid)),
+            'dir': os.path.join(outdir, "events", "obs_{:05d}".format(obsid)),
+            'pitch': events[0]['pitch'],
+        }
         obs_events.append(obs)
 
     obs_events = sorted(obs_events, key=lambda i: i['datestart'])
@@ -486,15 +519,14 @@ def make_event_reports(bgd_events, outdir='.', redo=False):
             event = {k: v for k, v in zip(e.colnames, e.as_void())}
             (event['bgdplot'], event['maxbgd']) = plot_bgd(event, obs['dir'])
             event['aokalstr'] = plot_aokalstr(event, obs['dir'])
-            event['imgrows'] = make_images(event['cross_time'] - 100,
-                                           event['cross_time'] + 300,
-                                           obs['dir'])
+            event['imgrows'] = make_images(
+                event['cross_time'] - 100, event['cross_time'] + 300, obs['dir']
+            )
             events.append(event)
 
         logger.info(f"Making report for {obs['obsid']}")
         obs_template = Template(open(file_dir / "per_obs_template.html", 'r').read())
-        page = obs_template.render(obsid=obs['obsid'],
-                                   events=events)
+        page = obs_template.render(obsid=obs['obsid'], events=events)
         f = open(os.path.join(obs['dir'], "index.html"), "w")
         f.write(page)
         f.close()
@@ -529,15 +561,15 @@ def main():
     if opt.start is not None:
         if start is not None:
             if DateTime(opt.start).secs < start.secs:
-                bgd_events = bgd_events[bgd_events['dwell_datestart'] <
-                                        DateTime(opt.start).date]
+                bgd_events = bgd_events[
+                    bgd_events['dwell_datestart'] < DateTime(opt.start).date
+                ]
         start = DateTime(opt.start)
     if start is None:
         start = DateTime(-7)
 
     new_events, stop = get_events(start)
     if len(new_events) > 0:
-
         new_events = Table(new_events)
         for obsid in np.unique(new_events['obsid']):
             if obsid in [0, -1]:
@@ -545,9 +577,13 @@ def main():
             url = f"{opt.web_url}/events/obs_{obsid:05d}/index.html"
             logger.warning(f"HI BGD event at in obsid {obsid} {url}")
             if len(opt.emails) > 0:
-                send_mail(logger, opt, f'ACA HI BGD event in obsid {obsid}',
-                          f'HI BGD in obsid {obsid} report at {url}',
-                          __file__)
+                send_mail(
+                    logger,
+                    opt,
+                    f'ACA HI BGD event in obsid {obsid}',
+                    f'HI BGD in obsid {obsid} report at {url}',
+                    __file__,
+                )
 
     if len(bgd_events) > 0:
         bgd_events = vstack([bgd_events, new_events])
