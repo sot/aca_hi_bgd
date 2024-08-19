@@ -7,7 +7,9 @@ img { image-rendering: pixelated }
 
 </HEADER>
 <BODY>
-<H1>High background events in obsid {{ obsid }}</H1>
+<A href="../../index.html">Back to top index</A>
+
+<H1>High background events in dwell {{dwell_start}} obsid {{ obsid }}</H1>
 
 <H2>Summary of background events with bgdavg plots</H2>
 Each entry in the table is a link to a section on the page with slot images.
@@ -17,9 +19,9 @@ Each entry in the table is a link to a section on the page with slot images.
 <tr>
 <td><A HREF="#{{ event['index']}}"><img src={{ event['bgdplot'] }}></A></td>
 <td><TABLE border=1>
-<tr><td>start of bgdavg > 100</td><td>{{event['event_datestart']}}</td></tr>
-<tr><td>duration</td><td>{{event['duration']}}</td></tr>
-<tr><td>slot_seconds</td><td>{{event['slot_seconds']}}</td></tr>
+<tr><td>start of bgdavg > threshold</td><td>{{event['event_datestart']}}</td></tr>
+<tr><td>duration</td><td>{{ '%.1f'|format(event['duration'])}}</td></tr>
+<tr><td>slot_seconds</td><td>{{ '%.1f'|format(event['slot_seconds'])}}</td></tr>
 </TABLE></td>
 </tr>
 </TABLE>
@@ -33,9 +35,9 @@ Each entry in the table is a link to a section on the page with slot images.
 <TABLE border=1>
 <tr>
 <td><TABLE border=1>
-<tr><td>start of bgdavg > 100</td><td>{{event['event_tstart']}}</td></tr>
-<tr><td>duration</td><td>{{event['duration']}}</td></tr>
-<tr><td>slot_seconds</td><td>{{event['slot_seconds']}}</td></tr>
+<tr><td>start of bgdavg > threshold</td><td>{{ '%.2f'|format(event['event_tstart']) }}</td></tr>
+<tr><td>duration</td><td>{{ '%.1f'|format(event['duration'])}}</td></tr>
+<tr><td>slot_seconds</td><td>{{ '%.1f'|format(event['slot_seconds'])}}</td></tr>
 </TABLE>
 </td>
 <td><img src={{ event['bgdplot'] }}></td>
@@ -49,6 +51,11 @@ Each entry in the table is a link to a section on the page with slot images.
 <tr><td>BGDAVG</td>
 {% for slot in row['slots'] %}
 <td width="100px">{{ slot.bgdavg }}</td>
+{%- endfor %}
+</tr>
+<tr><td>corr outer min</td>
+{% for slot in row['slots'] %}
+<td width="100px">{{ '%.1f'|format(slot.outer_min_7_magsub) }}</td>
 {%- endfor %}
 </tr>
 {%- endfor %}

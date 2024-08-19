@@ -9,15 +9,18 @@ os.environ["MPLBACKEND"] = "Agg"
 import json
 import warnings
 
+import agasc
 import astropy.units as u
 import matplotlib.pyplot as plt
 import numba
 from acdc.common import send_mail
 from astropy.table import Table, vstack
+from chandra_aca.transform import mag_to_count_rate
 from cheta import fetch, fetch_sci
 from cxotime import CxoTime
 from jinja2 import Template
 from kadi import events
+from kadi.commands import get_starcats
 from mica.archive import aca_l0
 from mica.archive.aca_dark.dark_cal import get_dark_cal_props
 from numpy.lib.stride_tricks import sliding_window_view
@@ -39,7 +42,7 @@ warnings.filterwarnings(
 LOGGER = basic_logger(__name__, level="INFO")
 
 
-def get_opt(args=None):
+def get_opt():
     parser = argparse.ArgumentParser(description="High Background event finder")
     parser.add_argument("--start", help="Start date")
     parser.add_argument("--stop", help="Stop date")
@@ -61,8 +64,7 @@ def get_opt(args=None):
         default=[],
         help="Email address for notificaion",
     )
-    args = parser.parse_args()
-    return args
+    return parser
 
 
 def get_slot_image_data(start, stop, slot):
@@ -160,19 +162,7 @@ def exceeds_8x8(slot_data):
     )
     hits = np.zeros(len(slot_data), dtype=bool)
 
-    outer_min = slot_data["outer_min_7_medsub"]
-    col_median = np.median(outer_min[ok])
-
-    # For the outer_min, use a threshold the max 40DN or
-    # an multiple of a measure of the spread of the data.
-    threshold_rel = 3 * (
-        np.percentile(slot_data[ok]["outer_min_7"], 95)
-        - np.percentile(slot_data[ok]["outer_min_7"], 50)
-    )
-
-    threshold = np.max([col_median + 40, col_median + threshold_rel])
-    hits[ok] = outer_min[ok] > threshold
-
+    hits[ok] = slot_data["outer_min_7_magsub"][ok] > slot_data["threshold"][ok]
     return hits
 
 
@@ -389,13 +379,14 @@ def get_events(start, stop=None, outdir=None):
                 continue
         else:
             stop_with_data = stop
+
         if len(dwell_events) > 0:
             dwell_events = combine_events(dwell_events)
-            event_outdir = os.path.join(outdir, "events", f"obs_{d.get_obsid()}")
-            make_event_report(d.get_obsid(), dwell_events, outdir=event_outdir)
+            event_outdir = Path(outdir) / "events" / f"dwell_{d.start}"
+            make_event_report(d.start, d.get_obsid(), dwell_events, outdir=event_outdir)
             json.dump(
                 dwell_events.as_array().tolist(),
-                open(os.path.join(event_outdir, f"obs_{d.get_obsid()}.json"), "w"),
+                open((Path(event_outdir) / "events.json"), "w"),
             )
             if len(bgd_events) > 0:
                 bgd_events = vstack([Table(bgd_events), dwell_events])
@@ -484,7 +475,7 @@ def get_background(slot_data):
 def get_max_of_mins(slots_data, col):
     # Get some debug data to try to calibrate what should be used for a
     # threshold for the BGDAVG and outer_min values.
-    max = 0
+    max_of_mins = 0
     for slot in range(8):
         if slot not in slots_data:
             continue
@@ -495,12 +486,21 @@ def get_max_of_mins(slots_data, col):
         if len(slot_data[col][ok]) < 3:
             continue
         rolling_min = np.min(sliding_window_view(slot_data[col][ok], 2), axis=-1)
-        if np.max(rolling_min) > max:
-            max = np.max(rolling_min)
-    return max
+        max_of_mins = max(max_of_mins, np.max(rolling_min))
+    return max_of_mins
 
 
-def get_background_data(slot_data):
+def get_star_contrib(mag):
+    counts = mag_to_count_rate(mag)
+    # mag_p = [2.5e-10, 3.0e-5, 0]
+    mag_p = [1.55e-4, 0]
+    mag_error_p = [1.822e-05, 2.393]
+    mag_contrib = np.clip(np.polyval(mag_p, counts), 0, None)
+    mag_contrib_err = np.clip(np.polyval(mag_error_p, counts), 0, None)
+    return mag_contrib, mag_contrib_err
+
+
+def get_background_data(slot_data, mag):
     ok_8 = (
         (slot_data["IMGSIZE"] == 8)
         & (slot_data["QUALITY"] == 0)
@@ -531,10 +531,49 @@ def get_background_data(slot_data):
         )
     bgds["outer_min_7"] = outer_min_7
     bgds["outer_min_7_medsub"] = outer_min_7 - np.median(outer_min_7[ok_8])
+
+    # Subtract off an estimate of the star or fid contribution by magnitude
+    mag_contrib, mag_contrib_err = get_star_contrib(mag)
+    bgds["outer_min_7_magsub"] = outer_min_7 - mag_contrib
+
+    # Just capture a threshold here.
+    bgds["threshold"] = np.ones_like(outer_min_7) * 45
+    bgds["threshold"][ok_8] = np.max([45, 5 * mag_contrib_err])
+
     bgds["bgd"] = np.where(
         slot_data["IMGSIZE"] == 8, bgds["outer_min_7_medsub"], slot_data["BGDAVG"]
     )
     return bgds
+
+
+def get_slot_mags(time):
+    """
+    Get the slot magnitudes for a time
+
+    :param time: time to get slot magnitudes
+    :returns: dict of slot magnitudes
+    """
+    # Get catalog magnitudes for the things in this dwell
+    starcats = get_starcats(CxoTime(time).secs - 30, CxoTime(time).secs + 30)
+    assert len(starcats) == 1
+    starcat = starcats[0]
+    guide_cat = starcat[starcat["type"] != "ACQ"]
+
+    slot_mag = {}
+    for slot in range(8):
+        guide_slots = guide_cat[guide_cat["slot"] == slot]
+        if len(guide_slots) != 1:
+            slot_mag[slot] = 15
+        else:
+            guide_slot = guide_slots[0]
+            if np.in1d(guide_slot["type"], ["BOT", "GUI"]):
+                star = agasc.get_star(
+                    guide_slot["id"], agasc_file="/proj/sot/ska/data/agasc/agasc1p8.h5"
+                )
+                slot_mag[slot] = star["MAG_ACA"]
+            else:
+                slot_mag[slot] = guide_slot["mag"]
+    return slot_mag
 
 
 def get_dwell_events(dwell):
@@ -554,12 +593,14 @@ def get_dwell_events(dwell):
 
     LOGGER.info(f"Checking dwell {d} obsid {obsid} for events")
 
+    slot_mag = get_slot_mags(dwell.tstart)
+
     bgd_events = []
 
     slots_data = {}
     for slot in range(8):
         slots_data[slot] = get_slot_image_data(d.start, d.stop, slot)
-        bgds = get_background_data(slots_data[slot])
+        bgds = get_background_data(slots_data[slot], slot_mag[slot])
         for key in bgds:
             slots_data[slot][key] = bgds[key]
 
@@ -596,13 +637,13 @@ def get_dwell_events(dwell):
             "cross_time": cross_time,
             "dwell_tstart": d.tstart,
             "dwell_datestart": d.start,
-            "max_bgd": event["max_bgd"],
+            "max_bgd_dn": event["max_bgd"],
             "duration": event["tstop"] - event["tstart"],
             "event_tstart": event["tstart"],
             "event_tstop": event["tstop"],
             "event_datestart": CxoTime(event["tstart"]).date,
-            "max_of_mins_bgdavg": get_max_of_mins(slots_data, "BGDAVG"),
-            "max_of_mins_outer_min_7": get_max_of_mins(slots_data, "outer_min_7"),
+            "max_of_mins_bgdavg_dn": get_max_of_mins(slots_data, "BGDAVG"),
+            "max_of_mins_outer_min_7_dn": get_max_of_mins(slots_data, "outer_min_7"),
             "pitch": pitch,
         }
         LOGGER.info(
@@ -612,10 +653,12 @@ def get_dwell_events(dwell):
     return bgd_events, d.stop
 
 
-def make_event_report(obsid, obs_events, outdir=".", redo=False):
+def make_event_report(dwell_start, obsid, obs_events, outdir=".", redo=False):
     # Do the per-obsid plot and report making
-    if not os.path.exists(outdir):
-        os.makedirs(outdir)
+
+    if not Path(outdir).exists():
+        # Make the directory if it doesn't exist using Path
+        Path(outdir).mkdir(parents=True, exist_ok=True)
     elif redo is False:
         return
 
@@ -632,8 +675,8 @@ def make_event_report(obsid, obs_events, outdir=".", redo=False):
     LOGGER.info(f"Making report for {outdir}")
     file_dir = Path(__file__).parent
     obs_template = Template(open(file_dir / "per_obs_template.html", "r").read())
-    page = obs_template.render(obsid=obsid, events=events)
-    f = open(os.path.join(outdir, "index.html"), "w")
+    page = obs_template.render(dwell_start=dwell_start, obsid=obsid, events=events)
+    f = open(Path(outdir) / "index.html", "w")
     f.write(page)
     f.close()
 
@@ -650,6 +693,9 @@ def plot_bgd(e, edir):
     """
 
     fig, ax = plt.subplots(1, 2, figsize=(6, 2.5))
+
+    slot_mag = get_slot_mags(e["dwell_tstart"])
+
     for slot in range(8):
         start = e["cross_time"] - 100
         stop = e["cross_time"] + 300
@@ -670,7 +716,7 @@ def plot_bgd(e, edir):
 
         if len(slot_data["TIME"]) == 0:
             raise ValueError
-        bgds = get_background_data(slot_data)
+        bgds = get_background_data(slot_data, slot_mag[slot])
         for key in bgds:
             slot_data[key] = bgds[key]
         ok = (slot_data["QUALITY"] == 0) & (slot_data["IMGFUNC1"] == 1)
@@ -682,17 +728,19 @@ def plot_bgd(e, edir):
                 label=f"slot {slot}",
                 ax=ax[0],
             )
+            ax[0].tick_params(axis="both", which="major", labelsize=7, pad=0)
             ax[0].set_ylabel("BGDAVG (DN)", fontsize="x-small")
             ax[0].grid(True)
             plot_cxctime(
                 slot_data["TIME"][ok],
-                slot_data["outer_min_7"][ok] - np.median(slot_data["outer_min_7"][ok]),
+                slot_data["outer_min_7_magsub"][ok] * 1.696 / 5.0,
                 ".",
                 label=f"slot {slot}",
                 ax=ax[1],
             )
-            ax[1].set_ylabel("outer_min_7 - median (DN)", fontsize="x-small")
+            ax[1].set_ylabel("mag & dark sub 8th outer min (e-/s)", fontsize="x-small")
             ax[1].grid(True)
+            ax[1].tick_params(axis="both", which="major", labelsize=7, pad=0)
     ax[0].set_title(
         "BGDAVG obsid {}\n start {}".format(
             e["obsid"], CxoTime(e["event_tstart"]).date
@@ -700,9 +748,7 @@ def plot_bgd(e, edir):
         fontsize="x-small",
     )
     ax[1].set_title(
-        "outer_min_7 - median of obsid {}\n start {}".format(
-            e["obsid"], CxoTime(e["event_tstart"]).date
-        ),
+        f"corr background 8th outer min {e['obsid']}\n start {CxoTime(e['event_tstart']).date}",
         fontsize="x-small",
     )
 
@@ -716,15 +762,16 @@ def plot_bgd(e, edir):
         numpoints=1,
         fontsize="x-small",
         loc="lower right",
-        bbox_to_anchor=(1, -0.1),
+        bbox_to_anchor=(1, -0.022),
         bbox_transform=fig.transFigure,
         ncol=len(labels),
     )
     plt.tight_layout()
     plt.margins(0.05)
     ax[0].set_ylim([-20, 1100])
+    ax[1].set_ylim([0, 250])
     filename = "bgdavg_{}.png".format(e["event_datestart"])
-    plt.savefig(os.path.join(edir, filename), dpi=150)
+    plt.savefig(Path(edir) / filename, dpi=150)
     plt.close()
     return filename
 
@@ -736,14 +783,16 @@ def plot_aokalstr(e, edir):
     :param e: dictionary with times of background event
     :param edir: directory for plots
     """
-    plt.figure(figsize=(4, 3))
+    plt.figure(figsize=(3, 2.5))
     aokalstr = fetch.Msid("AOKALSTR", e["event_tstart"] - 100, e["event_tstop"] + 100)
     aokalstr.plot()
     plt.ylim([0, 9])
     plt.grid()
-    plt.title("AOKALSTR")
+    plt.title("AOKALSTR", fontsize="x-small")
     filename = "aokalstr_{}.png".format(e["event_datestart"])
-    plt.savefig(os.path.join(edir, filename))
+    plt.tight_layout()
+    plt.tick_params(axis="both", which="major", labelsize=8)
+    plt.savefig(Path(edir) / filename, dpi=150)
     plt.close()
     return filename
 
@@ -760,13 +809,16 @@ def make_images(start, stop, outdir="out", max_images=200):
     """
     start = CxoTime(start)
     stop = CxoTime(stop)
+
+    slot_mag = get_slot_mags(start.secs)
+
     slots_data = {}
     for slot in range(8):
         slots_data[slot] = get_slot_image_data(
             start.secs - 20, stop.secs + 20, slot=slot
         )
         slots_data[slot]["SLOT"] = slot
-        bgds = get_background_data(slots_data[slot])
+        bgds = get_background_data(slots_data[slot], slot_mag[slot])
         for key in bgds:
             slots_data[slot][key] = bgds[key]
 
@@ -818,14 +870,14 @@ def make_images(start, stop, outdir="out", max_images=200):
                     "rowsecs": row["rowsecs"],
                     "bgd": dat["bgd"],
                     "bgdavg": dat["BGDAVG"],
-                    "outer_min_7": dat["outer_min_7"],
+                    "outer_min_7_magsub": np.clip(dat["outer_min_7_magsub"], 0, None),
                     "imgfunc1": dat["IMGFUNC1"],
                 }
             )
 
         im = Image.fromarray(np.hstack(slot_imgs)).convert("RGB")
         imgfilename = "piximg_{}.png".format(row["rowsecs"])
-        im.save(os.path.join(outdir, imgfilename), "PNG")
+        im.save(Path(outdir) / imgfilename, "PNG")
         row["img"] = imgfilename
         rows.append(row)
         if len(rows) > max_images:
@@ -844,63 +896,65 @@ def make_summary_reports(bgd_events, outdir="."):
     :param outdir: output directory
     :param redo: if set, remake plots and reports if they already exist
     """
-    if not os.path.exists(outdir):
-        os.makedirs(outdir)
+    Path(outdir).mkdir(parents=True, exist_ok=True)
 
     bgd_events = bgd_events[bgd_events["obsid"] != 0]
     bgd_events = bgd_events[bgd_events["obsid"] != -1]
 
-    obs_events = []
-    for obsid in np.unique(bgd_events["obsid"]):
-        # ignore the obsid == 0 case(s) for now
-        if obsid == 0:
-            continue
-
-        events = bgd_events[bgd_events["obsid"] == obsid]
+    dwell_events = []
+    for dwell_start in np.unique(bgd_events["dwell_datestart"]):
+        events = bgd_events[bgd_events["dwell_datestart"] == dwell_start]
         events["index"] = np.arange(len(events))
+
+        # ignore the obsid == 0 case(s) for now
+        if np.all(events["obsid"] == 0):
+            continue
 
         slots = {}
         for e in events:
             for s in e["slots"].split(","):
                 slots[int(s)] = 1
 
-        # Save the events, the intervals, and some other useful stuff for the per-obsid table
+        # Save the events, the intervals, and some other useful stuff for the per-dwell table
         obs = {
             "events": events.copy(),
+            "dwell_datestart": dwell_start,
             "datestart": CxoTime(events[0]["event_tstart"]).date,
             "n_events": len(events),
             "max_dur": np.max(events["duration"]),
             "max_slot_secs": np.max(events["slot_seconds"]),
             "n_slots": len(slots),
-            "obsid": obsid,
-            "reldir": os.path.join("events", "obs_{:05d}".format(obsid)),
-            "dir": os.path.join(outdir, "events", "obs_{:05d}".format(obsid)),
+            "obsid": events["obsid"][0],
+            "reldir": f"events/dwell_{dwell_start}",
+            "dir": Path(outdir) / "events" / f"dwell_{dwell_start}",
             "pitch": events[0]["pitch"],
         }
-        obs_events.append(obs)
+        dwell_events.append(obs)
 
-    obs_events = sorted(obs_events, key=lambda i: i["datestart"])
-    obs_events = obs_events[::-1]
+    dwell_events = sorted(dwell_events, key=lambda i: i["datestart"])
+    dwell_events = dwell_events[::-1]
 
     file_dir = Path(__file__).parent
     template = Template(open(file_dir / "top_level_template.html", "r").read())
-    page = template.render(obs_events=obs_events)
-    f = open(os.path.join(outdir, "index.html"), "w")
+    page = template.render(obs_events=dwell_events)
+    f = open(Path(outdir) / "index.html", "w")
     f.write(page)
     f.close()
 
 
 def review_and_send_email(events, opt):
     # For the new events, first filter down to ones worth notifying about.
-    # Let's say that's at least 2 slots, and at least 20 seconds.
+    # Let's say that's at least 3 slots or at least 20 seconds.
     # And only warn on legit obsids
     ok = ~np.in1d(events["obsid"], [0, -1]) & (events["n_slots"] >= 3) | (
-        events["duration"] >= 30
+        events["duration"] >= 20
     )
     events = events[ok]
 
-    for obsid in np.unique(events["obsid"]):
-        url = f"{opt.web_url}/events/obs_{obsid:05d}/index.html"
+    for dwell_start in np.unique(events["dwell_datestart"]):
+        obs_events = events[events["dwell_datestart"] == dwell_start]
+        obsid = obs_events["obsid"][0]
+        url = f"{opt.web_url}/events/dwell_{dwell_start}"
         send_mail(
             LOGGER,
             opt,
@@ -910,7 +964,7 @@ def review_and_send_email(events, opt):
         )
 
 
-def main():
+def main(args=None):
     """
     Do high background processing
 
@@ -918,15 +972,15 @@ def main():
     those events, make reports, and notify via email as needed.
     """
 
-    opt = get_opt()
+    opt = get_opt().parse_args(args)
     log_run_info(LOGGER.info, opt, version=__version__)
 
-    EVENT_ARCHIVE = os.path.join(opt.data_root, "bgd_events.dat")
+    EVENT_ARCHIVE = Path(opt.data_root) / "bgd_events.dat"
     Path(opt.data_root).mkdir(parents=True, exist_ok=True)
     start = None
 
     bgd_events = []
-    if os.path.exists(EVENT_ARCHIVE):
+    if Path(EVENT_ARCHIVE).exists():
         bgd_events = Table.read(EVENT_ARCHIVE, format="ascii")
     if len(bgd_events) > 0:
         start = CxoTime(bgd_events["dwell_datestart"][-1])
@@ -953,10 +1007,11 @@ def main():
         if len(opt.emails) > 0:
             review_and_send_email(events=new_events, opt=opt)
 
-        for obsid in np.unique(new_events["obsid"]):
-            if obsid in [0, -1]:
-                continue
-            url = f"{opt.web_url}/events/obs_{obsid:05d}/index.html"
+        ok = ~np.in1d(new_events["obsid"], [0, -1])
+        for dwell_start in np.unique(new_events["dwell_datestart"][ok]):
+            obs_events = new_events[new_events["dwell_datestart"] == dwell_start]
+            obsid = obs_events["obsid"][0]
+            url = f"{opt.web_url}/events/dwell_{dwell_start}"
             LOGGER.warning(f"HI BGD event at in obsid {obsid} {url}")
 
     if len(bgd_events) > 0:
