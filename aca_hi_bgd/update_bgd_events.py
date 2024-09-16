@@ -16,6 +16,7 @@ import numba
 from acdc.common import send_mail
 from astropy.table import Table, vstack
 from chandra_aca.transform import mag_to_count_rate
+from chandra_aca.dark_subtract import get_aca_images
 from cheta import fetch, fetch_sci
 from cxotime import CxoTime
 from jinja2 import Template
@@ -65,61 +66,6 @@ def get_opt():
         help="Email address for notificaion",
     )
     return parser
-
-
-def get_slot_image_data(start, stop, slot):
-    slot_data = aca_l0.get_slot_data(
-        start,
-        stop,
-        imgsize=[4, 6, 8],
-        slot=slot,
-        columns=[
-            "TIME",
-            "BGDAVG",
-            "IMGFUNC1",
-            "QUALITY",
-            "IMGRAW",
-            "IMGSIZE",
-            "TEMPCCD",
-            "IMGROW0",
-            "IMGCOL0",
-        ],
-    )
-
-    slot_data = Table(slot_data)
-    aacccdpt = fetch_sci.Msid("AACCCDPT", start, stop)
-
-    slot_data["AACCCDPT"] = interpolate(
-        aacccdpt.vals, aacccdpt.times, slot_data["TIME"]
-    )
-    return slot_data
-
-
-# this comes from the simple fit to DC averages, with fixed T_CCD=265.15
-def get_exponent(dc):
-    t = 265.15
-    dc, t = np.broadcast_arrays(dc, t)
-    shape = dc.shape
-    t = np.atleast_1d(t)
-    dc = np.atleast_1d(dc).copy()
-    dc[np.isnan(dc)] = 20
-    dc[(dc < 20)] = 20
-    dc[(dc > 1e4)] = 1e4
-    log_dc = np.log(dc)
-    a, b, c, d, e = [
-        -4.88802057e00,
-        -1.66791619e-04,
-        -2.22596103e-01,
-        -2.45720364e-03,
-        1.90718453e-01,
-    ]
-    y = log_dc - e * t
-    return (a + b * t + c * y + d * y**2).reshape(shape)
-
-
-def get_img_scaled(img, t_ccd, t_ref):
-    """Get img taken at ``t_ccd`` scaled to reference temperature ``t_ref``"""
-    return img * np.exp(get_exponent(img) * (t_ref - t_ccd))
 
 
 def exceeds_6x6(slot_data):
@@ -370,8 +316,39 @@ def get_events(start, stop=None, outdir=None):
         return bgd_events, start.date
 
     stop_with_data = start.date
+
+    if (Path(outdir) / "dwell_metrics.csv").exists():
+        dwell_metrics_tab = Table.read(Path(outdir) / "dwell_metrics.csv")
+        # Convert the table to a list of dictionaries
+        names = dwell_metrics_tab.colnames
+        dwell_metrics = [dict(zip(names, row)) for row in dwell_metrics_tab]
+    else:
+        dwell_metrics = []
+
     for d in dwells:
-        dwell_events, stop = get_dwell_events(d)
+
+        if len(dwell_metrics) > 0:
+            dwell_starts = [d["dwell"] for d in dwell_metrics]
+            if d.start in dwell_starts:
+                row_dict = dwell_metrics[dwell_starts.index(d.start)]
+                hit = False
+                for slot in range(8):
+                    if row_dict[f'max_s{slot}'] > row_dict[f'threshold_s{slot}']:
+                        hit = True
+                if hit is False:
+                    LOGGER.info(f"Skipping dwell {d} obsid {d.get_obsid()} no hits")
+                    continue
+
+        if d.get_obsid() == 0:
+            LOGGER.info(f"Skipping dwell {d} obsid {d.get_obsid()} in anomaly or recovery.")
+            continue
+
+        try:
+            dwell_events, stop, slot_metrics = get_dwell_events(d)
+        except IndexError:
+            LOGGER.info(f"Skipping dwell {d} obsid {d.get_obsid()} no data")
+            continue
+
         if stop is None:
             if (CxoTime.now() - CxoTime(d.stop)) < 7 * u.day:
                 break
@@ -379,6 +356,17 @@ def get_events(start, stop=None, outdir=None):
                 continue
         else:
             stop_with_data = stop
+
+        # unwrap the slot_metrics and save them
+        dwell_metric = {'dwell': d.start, 'obsid': d.get_obsid()}
+        for slot in slot_metrics:
+            for col in slot_metrics[slot]:
+                dwell_metric[f'{col}_s{slot}'] = slot_metrics[slot][col]
+        dwell_metrics.append(dwell_metric)
+        if len(dwell_metrics) > 1:
+            # make the outdir
+            Path(outdir).mkdir(parents=True, exist_ok=True)
+            Table(dwell_metrics).write(Path(outdir) / 'dwell_metrics.csv', overwrite=True)
 
         if len(dwell_events) > 0:
             dwell_events = combine_events(dwell_events)
@@ -394,25 +382,6 @@ def get_events(start, stop=None, outdir=None):
                 bgd_events = dwell_events
 
     return bgd_events, stop_with_data
-
-
-def get_bg_sub_imgs(ref_time, t_ccd, imgraw, imgrow0, imgcol0):
-    dark_raw, dark_cal = get_dark_backgrounds(ref_time, imgrow0, imgcol0)
-
-    dark = np.zeros((len(dark_raw), 8, 8), dtype=np.float64)
-
-    # scales = dark_temp_scale(dark_cal['t_ccd'], t_ccd)
-    # dark = dark_raw * scales[:, None, None]
-
-    # Scale the dark current at each dark cal 8x8 image to the ccd temperature
-    for i, (eight, t_ccd_i) in enumerate(zip(dark_raw, t_ccd, strict=True)):
-        img_sc = get_img_scaled(eight, dark_cal["t_ccd"], t_ccd_i)
-        dark[i] = img_sc
-
-    img_len = len(imgraw)
-    img_sub = imgraw - dark.reshape(img_len, 64) * 1.696 / 5
-    img_sub.clip(0, None)
-    return img_sub
 
 
 def get_outer_min(imgs, rank=0):
@@ -434,42 +403,9 @@ def get_outer_min(imgs, rank=0):
     used_pix = np.count_nonzero(flat_mask)
     tile_mask = np.tile(flat_mask, (img_len, 1))
 
-    outer_min = np.sort(imgs[tile_mask].reshape(img_len, used_pix), axis=-1)[:, rank]
+    outer_min = np.sort(imgs.reshape(img_len, 64)[tile_mask].reshape(img_len, used_pix), axis=-1)[:, rank]
 
     return outer_min
-
-
-def get_dark_backgrounds(ref_time, imgrow0, imgcol0):
-    # Get the nearest dark cal image
-    # This is cached in the mica code
-    dark_cal = get_dark_cal_props(
-        ref_time,
-        "nearest",
-        include_image=True,
-        aca_image=False,
-    )
-
-    @numba.jit(nopython=True)
-    def staggered_aca_slice(array_in, array_out, row, col):
-        for i in np.arange(len(row)):
-            if row[i] + 8 < 1024 and col[i] + 8 < 1024:
-                array_out[i] = array_in[row[i] : row[i] + 8, col[i] : col[i] + 8]
-
-    # subtract closest dark cal
-    dark_img = np.zeros([len(imgrow0), 8, 8], dtype=np.float64)
-    staggered_aca_slice(
-        dark_cal["image"].astype(float), dark_img, 512 + imgrow0, 512 + imgcol0
-    )
-    return dark_img, dark_cal
-
-
-def get_background(slot_data):
-    # Calculate the outer mins
-    outer_min_7, _ = get_outer_min(slot_data, 7)
-    # and the background to be used
-    # If the imgsize < 8 it has BGDAVG else it has outer_min
-    bgd = np.where(slot_data["IMGSIZE"] == 8, outer_min_7, slot_data["BGDAVG"])
-    return bgd, outer_min_7
 
 
 def get_max_of_mins(slots_data, col):
@@ -509,19 +445,7 @@ def get_background_data(slot_data, mag):
 
     bgds = {}
 
-    bgds["imgs_sum"] = slot_data["IMGRAW"].sum(axis=-1)
-
-    imgs_8x8_bgsub = np.zeros_like(slot_data["IMGRAW"])
-    imgs_8x8_bgsub[ok_8] = get_bg_sub_imgs(
-        slot_data["TIME"][0],
-        slot_data["AACCCDPT"][ok_8],
-        slot_data["IMGRAW"][ok_8],
-        slot_data["IMGROW0"].data.data[ok_8],
-        slot_data["IMGCOL0"].data.data[ok_8],
-    )
-    bgds["imgs_8x8_bgsub"] = imgs_8x8_bgsub
-
-    bgds["imgs_bgsub_sum"] = imgs_8x8_bgsub.sum(axis=-1)
+    imgs_8x8_bgsub = slot_data['IMGBGSUB']
 
     outer_min_7 = np.zeros(len(slot_data))
     outer_min_7[ok_8] = get_outer_min(imgs_8x8_bgsub[ok_8], rank=7)
@@ -530,18 +454,17 @@ def get_background_data(slot_data, mag):
             outer_min_7[ok_8], slot_data["TIME"][ok_8], slot_data["TIME"][~ok_8]
         )
     bgds["outer_min_7"] = outer_min_7
-    bgds["outer_min_7_medsub"] = outer_min_7 - np.median(outer_min_7[ok_8])
 
     # Subtract off an estimate of the star or fid contribution by magnitude
     mag_contrib, mag_contrib_err = get_star_contrib(mag)
     bgds["outer_min_7_magsub"] = outer_min_7 - mag_contrib
 
     # Just capture a threshold here.
-    bgds["threshold"] = np.ones_like(outer_min_7) * 45
-    bgds["threshold"][ok_8] = np.max([45, 5 * mag_contrib_err])
+    bgds["threshold"] = np.ones_like(outer_min_7) * 47
+    bgds["threshold"][ok_8] = np.max([47, 6 * mag_contrib_err])
 
     bgds["bgd"] = np.where(
-        slot_data["IMGSIZE"] == 8, bgds["outer_min_7_medsub"], slot_data["BGDAVG"]
+        slot_data["IMGSIZE"] == 8, bgds["outer_min_7_magsub"], slot_data["BGDAVG"]
     )
     return bgds
 
@@ -554,9 +477,11 @@ def get_slot_mags(time):
     :returns: dict of slot magnitudes
     """
     # Get catalog magnitudes for the things in this dwell
-    starcats = get_starcats(CxoTime(time).secs - 30, CxoTime(time).secs + 30)
-    assert len(starcats) == 1
-    starcat = starcats[0]
+    starcats = get_starcats(CxoTime(time).secs - (3600 * 4), CxoTime(time).secs)
+    if len(starcats) == 0:
+        LOGGER.info(f"No starcat data for {CxoTime(time).date}")
+        return {}
+    starcat = starcats[-1]
     guide_cat = starcat[starcat["type"] != "ACQ"]
 
     slot_mag = {}
@@ -574,6 +499,38 @@ def get_slot_mags(time):
             else:
                 slot_mag[slot] = guide_slot["mag"]
     return slot_mag
+
+
+def get_slots_metrics(slots_data):
+
+    slots_metrics = {}
+    for slot in range(8):
+        if slot not in slots_data:
+            continue
+        slot_data = slots_data[slot]
+        ok = (slot_data["QUALITY"] == 0) & (slot_data["IMGFUNC1"] == 1)
+        if np.median(slot_data["IMGSIZE"][ok]) == 6:
+            ok6 = ((slot_data["QUALITY"] == 0)
+                     & (slot_data["IMGFUNC1"] == 1)
+                     & (slot_data["IMGSIZE"] == 6))
+            slots_metrics[slot] = {
+                "bg_col": "BGDAVG",
+                "threshold": 200,
+                "max": slot_data["BGDAVG"][ok6].max()
+            }
+        elif np.median(slot_data["IMGSIZE"][ok]) == 8:
+            ok8 = ((slot_data["QUALITY"] == 0)
+                   & (slot_data["IMGFUNC1"] == 1)
+                   & (slot_data["IMGSIZE"] == 8))
+            slots_metrics[slot] = {
+                "bg_col": "outer_min_7_magsub",
+                "max": slot_data["outer_min_7_magsub"][ok8].max(),
+                "threshold": np.median(slot_data['threshold'][ok8]),
+            }
+        else:
+            continue
+    return slots_metrics
+
 
 
 def get_dwell_events(dwell):
@@ -597,12 +554,14 @@ def get_dwell_events(dwell):
 
     bgd_events = []
 
-    slots_data = {}
-    for slot in range(8):
-        slots_data[slot] = get_slot_image_data(d.start, d.stop, slot)
-        bgds = get_background_data(slots_data[slot], slot_mag[slot])
+    slots_data = get_aca_images(d.start, d.stop, source='mica')
+    for slot in slots_data:
+        mag = slot_mag[slot] if slot in slot_mag else 15
+        bgds = get_background_data(slots_data[slot], mag)
         for key in bgds:
             slots_data[slot][key] = bgds[key]
+
+    slots_metrics = get_slots_metrics(slots_data)
 
     # Check that the image data is complete for the dwell.
     # This assumes that it is sufficient to check slot 3
@@ -610,7 +569,7 @@ def get_dwell_events(dwell):
         CxoTime(d.stop).secs - slots_data[3]["TIME"][-1]
     ) > 60:
         LOGGER.info(f"Stopping review of dwells at dwell {d.start}, missing image data")
-        return [], None
+        return [], None, {}
 
     # Get Candidate crossings
     cand_crossings = get_candidate_crossings(slots_data)
@@ -620,6 +579,7 @@ def get_dwell_events(dwell):
     if len(cand_crossings) > 0:
         pitchs = fetch.Msid("DP_PITCH", d.start, d.stop, stat="5min")
         pitch = np.median(pitchs.vals)
+
 
     # Review the crossings and check for slot seconds
     for cross_time in np.unique(cand_crossings):
@@ -642,15 +602,13 @@ def get_dwell_events(dwell):
             "event_tstart": event["tstart"],
             "event_tstop": event["tstop"],
             "event_datestart": CxoTime(event["tstart"]).date,
-            "max_of_mins_bgdavg_dn": get_max_of_mins(slots_data, "BGDAVG"),
-            "max_of_mins_outer_min_7_dn": get_max_of_mins(slots_data, "outer_min_7"),
             "pitch": pitch,
         }
         LOGGER.info(
             f"Updating with {e['duration']:.1f}s raw event in {obsid} at {e['event_datestart']}"
         )
         bgd_events.append(e)
-    return bgd_events, d.stop
+    return bgd_events, d.stop, slots_metrics
 
 
 def make_event_report(dwell_start, obsid, obs_events, outdir=".", redo=False):
@@ -668,7 +626,7 @@ def make_event_report(dwell_start, obsid, obs_events, outdir=".", redo=False):
         event["bgdplot"] = plot_bgd(event, outdir)
         event["aokalstr"] = plot_aokalstr(event, outdir)
         event["imgrows"] = make_images(
-            event["cross_time"] - 100, event["cross_time"] + 300, outdir
+            event["cross_time"] - 25, event["cross_time"] + 100, outdir
         )
         events.append(event)
 
@@ -685,8 +643,8 @@ def plot_bgd(e, edir):
     """
     Make a plot of background over an event and save to `edir`.
 
-    Presently plots over range from 100 seconds before high threshold crossing to
-    300 seconds after high threshold crossing.
+    Presently plots over range from 25 seconds before high threshold crossing to
+    100 seconds after high threshold crossing.
 
     :param e: dictionary with times of background event
     :param edir: directory for plots
@@ -696,27 +654,18 @@ def plot_bgd(e, edir):
 
     slot_mag = get_slot_mags(e["dwell_tstart"])
 
+    start = e["cross_time"] - 25
+    stop = e["cross_time"] + 100
+    slots_data = get_aca_images(start, stop,
+                                source='mica')
     for slot in range(8):
-        start = e["cross_time"] - 100
-        stop = e["cross_time"] + 300
-        slot_data = Table(
-            aca_l0.get_slot_data(
-                start,
-                stop,
-                imgsize=[4, 6, 8],
-                slot=slot,
-            )
-        )
-        slot_data = Table(slot_data)
-        aacccdpt = fetch_sci.Msid("AACCCDPT", start, stop)
 
-        slot_data["AACCCDPT"] = interpolate(
-            aacccdpt.vals, aacccdpt.times, slot_data["TIME"]
-        )
+        slot_data = slots_data[slot]
 
         if len(slot_data["TIME"]) == 0:
             raise ValueError
-        bgds = get_background_data(slot_data, slot_mag[slot])
+        mag = slot_mag[slot] if slot in slot_mag else 15
+        bgds = get_background_data(slot_data, mag)
         for key in bgds:
             slot_data[key] = bgds[key]
         ok = (slot_data["QUALITY"] == 0) & (slot_data["IMGFUNC1"] == 1)
@@ -725,6 +674,7 @@ def plot_bgd(e, edir):
                 slot_data["TIME"][ok],
                 slot_data["BGDAVG"][ok],
                 ".",
+                markersize=5,
                 label=f"slot {slot}",
                 ax=ax[0],
             )
@@ -735,6 +685,7 @@ def plot_bgd(e, edir):
                 slot_data["TIME"][ok],
                 slot_data["outer_min_7_magsub"][ok] * 1.696 / 5.0,
                 ".",
+                markersize=5,
                 label=f"slot {slot}",
                 ax=ax[1],
             )
@@ -768,8 +719,9 @@ def plot_bgd(e, edir):
     )
     plt.tight_layout()
     plt.margins(0.05)
-    ax[0].set_ylim([-20, 1100])
-    ax[1].set_ylim([0, 250])
+    ax[0].set_ylim([0, 1100])
+    ylims1 = ax[1].get_ylim()
+    ax[1].set_ylim([0, np.max([250, ylims1[1]])])
     filename = "bgdavg_{}.png".format(e["event_datestart"])
     plt.savefig(Path(edir) / filename, dpi=150)
     plt.close()
@@ -812,13 +764,13 @@ def make_images(start, stop, outdir="out", max_images=200):
 
     slot_mag = get_slot_mags(start.secs)
 
-    slots_data = {}
+    slots_data = get_aca_images(start.secs - 10,
+                                stop.secs + 10, source='mica')
     for slot in range(8):
-        slots_data[slot] = get_slot_image_data(
-            start.secs - 20, stop.secs + 20, slot=slot
-        )
+        mag = slot_mag[slot] if slot in slot_mag else 15
+        slots_data[slot] = slots_data[slot]
         slots_data[slot]["SLOT"] = slot
-        bgds = get_background_data(slots_data[slot], slot_mag[slot])
+        bgds = get_background_data(slots_data[slot], mag)
         for key in bgds:
             slots_data[slot][key] = bgds[key]
 
@@ -837,10 +789,11 @@ def make_images(start, stop, outdir="out", max_images=200):
             # Find last complete row at or before this time
             last_idx = np.flatnonzero(slots_data[slot]["TIME"] <= time)[-1]
             dat = slots_data[slot][last_idx]
-            imgraw = dat["IMGRAW"].reshape(8, 8)
-            sz = dat["IMGSIZE"]
-            if sz < 8:
-                imgraw = imgraw[:sz, :sz]
+            imgraw = dat["IMG"].filled(0).reshape(8, 8)
+            #sz = dat["IMGSIZE"]
+            sz = 8
+            #if sz < 8:
+            #    imgraw = imgraw[:sz, :sz]
             imgraw = np.clip(imgraw, a_min=10, a_max=None)
             if np.all(imgraw == 10) or dat["IMGFUNC1"] != 1:
                 pixvals = np.zeros((sz, sz))
@@ -946,8 +899,9 @@ def review_and_send_email(events, opt):
     # For the new events, first filter down to ones worth notifying about.
     # Let's say that's at least 3 slots or at least 20 seconds.
     # And only warn on legit obsids
-    ok = ~np.in1d(events["obsid"], [0, -1]) & (events["n_slots"] >= 3) | (
-        events["duration"] >= 20
+    ok = ( ~np.in1d(events["obsid"], [0, -1])
+            & (events["n_slots"] >= 3)
+            | (events["duration"] >= 20)
     )
     events = events[ok]
 
@@ -1018,6 +972,10 @@ def main(args=None):
         bgd_events = vstack([bgd_events, new_events])
     else:
         bgd_events = new_events
+
+    if len(bgd_events) == 0:
+        LOGGER.warning("No new or old events - Bailing out")
+        return
 
     # Add a null event at the end
     bgd_events.add_row()

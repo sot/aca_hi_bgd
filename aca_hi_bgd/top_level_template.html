@@ -7,7 +7,7 @@
     <TH>Max Duration</TH><TH>Max Slot Seconds</TH><TH>Sun Pitch</TH></TR>
 {% for obs in obs_events %}
 <TR>
-<TD>{{ obs['datestart'] }}</TD>
+<TD ALIGN="left"><A HREF="{{obs['reldir']}}/index.html">{{obs['datestart']}}</A></TD>
 <TD ALIGN="right"><A HREF="{{obs['reldir']}}/index.html">{{obs['obsid']}}</A></TD>
 <TD ALIGN="right">{{ obs['n_events'] }}</TD>
 <TD ALIGN="right">{{ obs['n_slots']}}</TD>
