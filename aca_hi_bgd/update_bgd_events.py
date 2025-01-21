@@ -51,6 +51,11 @@ def get_opt():
         help="Output data directory",
     )
     parser.add_argument(
+        "--replot",
+        action="store_true",
+        help="Replot known events",
+    )
+    parser.add_argument(
         "--web-out", default="/proj/sot/ska/www/ASPECT/aca_hi_bgd_mon_dev/"
     )
     parser.add_argument(
@@ -1610,7 +1615,7 @@ def review_and_send_email(events, opt):
         )
 
 
-def main(args=None):  # noqa: PLR0912 too many branches
+def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many statements
     """
     Do high background processing.
 
@@ -1638,14 +1643,35 @@ def main(args=None):  # noqa: PLR0912 too many branches
         for bad_datestart in bads["dwell_datestart"]:
             bgd_events = bgd_events[bgd_events["dwell_datestart"] != bad_datestart]
 
+    if opt.replot:
+        for dwell_start in np.unique(bgd_events["dwell_datestart"]):
+            obs_events = bgd_events[bgd_events["dwell_datestart"] == dwell_start]
+            obsid = obs_events["obsid"][0]
+            year = int(CxoTime(dwell_start).frac_year)
+            url = f"{opt.web_url}/events/{year}/dwell_{dwell_start}"
+            LOGGER.info(f"Replotting HI BGD event in obsid {obsid} {url}")
+            make_event_report(
+                dwell_start,
+                dwell_start,
+                obsid,
+                obs_events,
+                outdir=Path(opt.web_out)
+                / "events"
+                / f"{year}"
+                / f"dwell_{dwell_start}",
+                redo=True,
+            )
+        make_summary_reports(bgd_events, outdir=opt.web_out)
+        return
+
     # If the user has asked for a start time earlier than the end of the
-    # table, delete any rows after the supplied start time
-    if opt.start is not None:
+    # table, delete possibly conflicting events in the table.
+    if opt.start is not None and opt.stop is not None:
         if start is not None:
-            if CxoTime(opt.start).secs < start.secs:
-                bgd_events = bgd_events[
-                    bgd_events["dwell_datestart"] < CxoTime(opt.start).date
-                ]
+            bgd_events = bgd_events[
+                (bgd_events["dwell_datestart"] < CxoTime(opt.start).date)
+                | (bgd_events["dwell_datestart"] > CxoTime(opt.stop).date)
+            ]
         start = CxoTime(opt.start)
     if start is None:
         start = CxoTime(-7)
@@ -1675,6 +1701,8 @@ def main(args=None):  # noqa: PLR0912 too many branches
     if len(bgd_events) == 0:
         LOGGER.warning("No new or old events - Bailing out")
         return
+
+    bgd_events.sort("datestart")
 
     # Add a null event at the end
     bgd_events.add_row()
