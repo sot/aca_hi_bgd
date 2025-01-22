@@ -937,14 +937,14 @@ def rebin_data(
     return binned_times, binned_data
 
 
-def plot_dwell(
+def plot_dwell(  # noqa: PLR0912, PLR0915 too many statements, too many branches
     start: CxoTimeLike, stop: CxoTimeLike, dwell_start: CxoTimeLike, events: Table
 ) -> str:
     """
     Generate a plotly plot of backgrounds data and aokalstr over an event.
 
-    This function creates a plot with three subplots:
-    1. BGDAVG (e-/s)
+    This function creates a plot with two or three subplots:
+    1. BGDAVG (e-/s) - included if observation has 6x6 data
     2. Corrected background 8th outer min (e-/s)
     3. AOKALSTR (N)
 
@@ -971,6 +971,14 @@ def plot_dwell(
     sd_table = get_aca_images(start, stop, source="cxc", bgsub=True)
     slots_data = {slot: sd_table[sd_table["IMGNUM"] == slot] for slot in range(8)}
 
+    # Does the observation have 6x6 data?
+    has_6x6 = False
+    for slot in range(8):
+        if slot in slots_data:
+            if np.median(slots_data[slot]["IMGSIZE"]) == 6:
+                has_6x6 = True
+                break
+
     # Define a color palette
     colors = [
         "#1f77b4",
@@ -983,12 +991,22 @@ def plot_dwell(
         "#7f7f7f",
     ]
 
-    # Create subplots
-    fig = make_subplots(
-        rows=1,
-        cols=3,
-        subplot_titles=("BGDAVG (e-/s)", "corr background 8th outer min (e-/s)"),
-    )
+    if has_6x6:
+        fig = make_subplots(
+            rows=1,
+            cols=3,
+            subplot_titles=(
+                "BGDAVG (e-/s)",
+                "corr background 8th outer min (e-/s)",
+                "AOKALSTR",
+            ),
+        )
+    else:
+        fig = make_subplots(
+            rows=1,
+            cols=2,
+            subplot_titles=("corr background 8th outer min (e-/s)", "AOKALSTR"),
+        )
 
     # use a fixed number of bins to speed up the plotting if there are a lot of data points
     num_bins = 2000
@@ -1018,10 +1036,24 @@ def plot_dwell(
             y1_data = a_data
             y2_data = b_data
 
+        if has_6x6:
+            fig.add_trace(
+                go.Scatter(
+                    x=dtimes,
+                    y=y1_data,
+                    mode="markers",
+                    marker={"color": colors[slot]},
+                    legendgroup=f"Slot {slot}",
+                    showlegend=False,
+                ),
+                row=1,
+                col=1,
+            )
+
         fig.add_trace(
             go.Scatter(
                 x=dtimes,
-                y=y1_data,
+                y=y2_data,
                 mode="markers",
                 name=f"Slot {slot}",
                 marker={"color": colors[slot]},
@@ -1029,26 +1061,15 @@ def plot_dwell(
                 showlegend=True,
             ),
             row=1,
-            col=1,
+            col=2 if has_6x6 else 1,
         )
-        fig.add_trace(
-            go.Scatter(
-                x=dtimes,
-                y=y2_data,
-                mode="markers",
-                marker={"color": colors[slot]},
-                legendgroup=f"Slot {slot}",
-                showlegend=False,
-            ),
-            row=1,
-            col=2,
-        )
+
         # Add horizontal line for the threshold in a subplot
         threshold = np.median(slot_data["threshold"][ok])
         if np.median(slot_data["IMGSIZE"][ok]) == 6:
             figure_col = 1
         elif np.median(slot_data["IMGSIZE"][ok]) == 8:
-            figure_col = 2
+            figure_col = 2 if has_6x6 else 1
         else:
             continue
         fig.add_trace(
@@ -1079,19 +1100,20 @@ def plot_dwell(
             layer="below",
             line_width=0,
         )
-        fig.add_shape(
-            type="rect",
-            xref="x2",
-            yref="paper",
-            x0=(event["tstart"] - CxoTime(start).secs) / 1000.0,
-            x1=(event["tstop"] - CxoTime(start).secs) / 1000.0,
-            y0=0,
-            y1=1,
-            fillcolor="LightSalmon",
-            opacity=0.5,
-            layer="below",
-            line_width=0,
-        )
+        if has_6x6:
+            fig.add_shape(
+                type="rect",
+                xref="x2",
+                yref="paper",
+                x0=(event["tstart"] - CxoTime(start).secs) / 1000.0,
+                x1=(event["tstop"] - CxoTime(start).secs) / 1000.0,
+                y0=0,
+                y1=1,
+                fillcolor="LightSalmon",
+                opacity=0.5,
+                layer="below",
+                line_width=0,
+            )
 
     aokalstr = fetch.Msid("AOKALSTR", CxoTime(start).secs, CxoTime(stop).secs)
     values = np.array(aokalstr.vals).astype(int)
@@ -1104,31 +1126,52 @@ def plot_dwell(
     fig.add_trace(
         go.Scatter(x=dtimes, y=values, mode="lines", name="aokalstr"),
         row=1,
-        col=3,
+        col=3 if has_6x6 else 2,
     )
 
     fig.update_xaxes(matches="x")  # Define the layout
-    fig.update_layout(
-        xaxis_title="Obs Time (ks)",
-        yaxis_title="BGDAVG (e-/s)",
-        xaxis2_title="Obs Time (ks)",
-        yaxis2_title="corr background 8th outer min",
-        xaxis3_title="Obs Time (ks)",
-        yaxis3_title="AOKALSTR (N)",
-        yaxis={"range": [0, 3000]},
-        yaxis2={"range": [0, 500]},
-        yaxis3={"range": [0, 8]},
-        height=400,
-        width=1200,
-        legend={
-            "font": {"size": 10},
-            "orientation": "h",
-            "x": 0.5,
-            "xanchor": "center",
-            "y": -0.2,
-            "yanchor": "top",
-        },
-    )
+
+    if has_6x6:
+        fig.update_layout(
+            xaxis_title="Obs Time (ks)",
+            yaxis_title="BGDAVG (e-/s)",
+            xaxis2_title="Obs Time (ks)",
+            yaxis2_title="corr background 8th outer min",
+            xaxis3_title="Obs Time (ks)",
+            yaxis3_title="AOKALSTR (N)",
+            yaxis={"range": [0, 3000]},
+            yaxis2={"range": [0, 500]},
+            yaxis3={"range": [0, 8]},
+            height=400,
+            width=1200,
+            legend={
+                "font": {"size": 10},
+                "orientation": "h",
+                "x": 0.5,
+                "xanchor": "center",
+                "y": -0.2,
+                "yanchor": "top",
+            },
+        )
+    else:
+        fig.update_layout(
+            xaxis_title="Obs Time (ks)",
+            yaxis_title="corr background 8th outer min",
+            xaxis2_title="Obs Time (ks)",
+            yaxis2_title="AOKALSTR (N)",
+            yaxis={"range": [0, 500]},
+            yaxis2={"range": [0, 8]},
+            height=500,
+            width=1000,
+            legend={
+                "font": {"size": 10},
+                "orientation": "h",
+                "x": 0.5,
+                "xanchor": "center",
+                "y": -0.2,
+                "yanchor": "top",
+            },
+        )
 
     # Convert the figure to HTML
     html = fig.to_html(
@@ -1186,6 +1229,7 @@ def get_images_for_plot(start: CxoTimeLike, stop: CxoTimeLike) -> tuple:
     image_stacks = []
     bgdavgs = collections.defaultdict(list)
     outer_mins = collections.defaultdict(list)
+    imagesizes = collections.defaultdict(list)
 
     for slot in range(8):
         slot_data = slots_data[slot]
@@ -1198,6 +1242,7 @@ def get_images_for_plot(start: CxoTimeLike, stop: CxoTimeLike) -> tuple:
                 idx = np.flatnonzero(ok)[-1]
                 bgdavgs[slot].append(slot_data["bgdavg_es"][idx])
                 outer_mins[slot].append(slot_data["outer_min_7_magsub"][idx])
+                imagesizes[slot].append(slot_data["IMGSIZE"][idx])
                 img = slot_data["IMG"][idx].reshape(8, 8)
                 # if this is a 6x6 image, explicitly fill the edges with something
                 # not as annoying as the large value
@@ -1215,6 +1260,7 @@ def get_images_for_plot(start: CxoTimeLike, stop: CxoTimeLike) -> tuple:
             else:
                 outer_mins[slot].append(0)
                 bgdavgs[slot].append(0)
+                imagesizes[slot].append(8)
                 pixvals = np.zeros((sz, sz))
                 np.fill_diagonal(pixvals, 255)
 
@@ -1222,7 +1268,7 @@ def get_images_for_plot(start: CxoTimeLike, stop: CxoTimeLike) -> tuple:
             img[1:9, 1:9] = pixvals.transpose()
             slot_stack.append(img)
         image_stacks.append(slot_stack)
-    return times, image_stacks, bgdavgs, outer_mins
+    return times, image_stacks, bgdavgs, outer_mins, imagesizes
 
 
 def plot_images(start: CxoTimeLike, stop: CxoTimeLike) -> str:  # noqa: PLR0915 Too many statements
@@ -1249,7 +1295,9 @@ def plot_images(start: CxoTimeLike, stop: CxoTimeLike) -> str:  # noqa: PLR0915 
     start = CxoTime(start)
     stop = CxoTime(stop)
 
-    times, image_stacks, bgdavgs, outer_mins = get_images_for_plot(start, stop)
+    times, image_stacks, bgdavgs, outer_mins, imagesizes = get_images_for_plot(
+        start, stop
+    )
 
     # Parameters
     num_stacks = len(image_stacks)
@@ -1401,10 +1449,13 @@ def plot_images(start: CxoTimeLike, stop: CxoTimeLike) -> str:  # noqa: PLR0915 
         ]
 
         # Centered labels: use calculated subplot centers
-        new_titles = [
-            f"bgdavg: {bgdavgs[i][frame_idx]:.0f}<br>outermin: {outer_mins[i][frame_idx]:.0f}"
-            for i in range(num_stacks)
-        ]
+        new_titles = []
+        for i in range(num_stacks):
+            if imagesizes[i][frame_idx] == 6:
+                new_titles.append(f"bgdavg: {bgdavgs[i][frame_idx]:.0f}")
+            else:
+                new_titles.append(f"outermin: {outer_mins[i][frame_idx]:.0f}")
+
         annotations = [
             {
                 "x": subplot_centers[stack_idx],  # Use exact center of each subplot
