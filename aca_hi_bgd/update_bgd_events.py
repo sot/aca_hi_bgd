@@ -92,6 +92,27 @@ def get_false_positives() -> Table:
     return dat[ok]
 
 
+def get_extra_notes() -> Table:
+    """
+    Get any extra notes from the Google Sheet.
+
+    Notes are labeled on the sheet as type "note".
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    dat : astropy.table.Table
+        Table of notes if any
+    """
+    LOGGER.info(f"Reading notes from {GSHEET_URL}")
+    dat = Table.read(GSHEET_URL, format="ascii.csv")
+    ok = dat["type"] == "note"
+    return dat[ok]
+
+
 def exceeds_threshold(slot_data: Table) -> np.ndarray:
     """
     Get the indices of the slot data that exceed the threshold.
@@ -1415,6 +1436,9 @@ def make_summary_reports(bgd_events, outdir="."):
     """
     Path(outdir).mkdir(parents=True, exist_ok=True)
 
+    # Get notes
+    extra_notes = get_extra_notes()
+
     # For the HTML page, reduce to just the significant events
     ok = significant_events(bgd_events)
     bgd_events = bgd_events[ok]
@@ -1450,7 +1474,14 @@ def make_summary_reports(bgd_events, outdir="."):
             / f"dwell_{dwell_start}",
             "pitch": events[0]["pitch"],
             "notes": events[0]["notes"],
+            "manual_notes": " " * 25,
         }
+
+        # Add extra notes
+        if dwell_start in extra_notes["dwell_datestart"]:
+            ok = extra_notes["dwell_datestart"] == dwell_start
+            obs["manual_notes"] = extra_notes["notes"][ok][0]
+
         dwell_events.append(obs)
 
     if len(dwell_events) > 0:
@@ -1642,6 +1673,9 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
         # Remove any known bad events from the real list too
         for bad_datestart in bads["dwell_datestart"]:
             bgd_events = bgd_events[bgd_events["dwell_datestart"] != bad_datestart]
+
+        # Fill masked values in the notes column with empty strings
+        bgd_events["notes"] = bgd_events["notes"].filled("")
 
     if opt.replot:
         for dwell_start in np.unique(bgd_events["dwell_datestart"]):

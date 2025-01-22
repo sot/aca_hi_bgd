@@ -20,7 +20,8 @@
 
 <TABLE BORDER=1>
 <TR><TH>Dwell Start</TH><TH>Obsid</TH><TH>N events</TH><TH>N Slots</TH>
-    <TH>Max Duration</TH><TH>Max Slot Seconds</TH><TH>Sun Pitch</TH><TH>NOTES</TH></TR>
+    <TH>Max Duration</TH><TH>Max Slot Seconds</TH><TH>Sun Pitch</TH>
+    <TH>Auto Notes</TH><TH>Manual Notes</TH></TR>
 {% for obs in obs_events %}
 <TR>
 <TD ALIGN="left"><A HREF="{{obs['reldir']}}/index.html">{{obs['dwell_datestart']}}</A></TD>
@@ -31,6 +32,7 @@
 <TD ALIGN="right">{{ '%.1f'|format(obs['max_slot_secs']) }}</TD>
 <TD ALIGN="right">{{ '%.1f'|format(obs['pitch']) }}</TD>
 <TD ALIGN="right">{{ obs['notes'] }}</TD>
+<TD ALIGN="right">{{ obs['manual_notes'] }}
 </TR>
 {% endfor %}
 </TABLE>
