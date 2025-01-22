@@ -374,6 +374,7 @@ def get_manvr_extra_data(start: CxoTimeLike, stop: CxoTimeLike) -> dict:
     notes = []
     aoacaseq = fetch.Msid("AOACASEQ", start, stop)
     from cheta.utils import state_intervals
+
     aca_states = state_intervals(aoacaseq.times, aoacaseq.vals)
     if np.count_nonzero(aca_states["val"] == "AQXN") > expected_acqs:
         notes.append("Full REACQ")
@@ -1614,8 +1615,7 @@ def plot_events_pitch(dwell_events: Table) -> str:
     )
 
 
-def significant_events(
-    bg_events: Table) -> np.array:
+def significant_events(bg_events: Table) -> np.array:
     """
     Filter out events that are not significant.
 
