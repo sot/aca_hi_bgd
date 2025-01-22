@@ -1706,13 +1706,14 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
     if opt.replot:
         for dwell_start in np.unique(bgd_events["dwell_datestart"]):
             obs_events = bgd_events[bgd_events["dwell_datestart"] == dwell_start]
+            dwell_stop = obs_events["dwell_datestop"][0]
             obsid = obs_events["obsid"][0]
             year = int(CxoTime(dwell_start).frac_year)
             url = f"{opt.web_url}/events/{year}/dwell_{dwell_start}"
             LOGGER.info(f"Replotting HI BGD event in obsid {obsid} {url}")
             make_event_report(
                 dwell_start,
-                dwell_start,
+                dwell_stop,
                 obsid,
                 obs_events,
                 outdir=Path(opt.web_out)
