@@ -218,7 +218,8 @@ def combine_events(events: list, tol: float = 30) -> list:
     Parameters
     ----------
     events : list
-        List of dictionaries with keys "tstart" and "tstop" for each event
+        List of dictionaries with keys "tstart" and "tstop" for each event.
+        Assumed to already be sorted by "tstart"
     tol : float
         The tolerance for merging overlapping events
 
@@ -235,7 +236,7 @@ def combine_events(events: list, tol: float = 30) -> list:
             continue
         last_event = merged_events[-1]
         if (event["tstart"] - tol) <= last_event["tstop"]:
-            last_event["tstop"] = event["tstop"]
+            last_event["tstop"] = max(event["tstop"], last_event["tstop"])
         else:
             merged_events.append(event)
     return merged_events
