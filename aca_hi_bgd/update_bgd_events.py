@@ -364,9 +364,9 @@ def get_manvr_extra_data(start: CxoTimeLike, stop: CxoTimeLike) -> dict:
     else:
         pitch = -999
 
-    guide_cat = get_guide_cat(start)
     expected_acqs = 0
-    if "MON" in guide_cat["type"]:
+    guide_cat = get_guide_cat(start)
+    if len(guide_cat) > 0 and "MON" in guide_cat["type"]:
         expected_acqs = 1
 
     # Check for multiple acquisitions and add notes
@@ -689,11 +689,14 @@ def get_slot_mags(time: CxoTimeLike) -> dict:
     guide_cat = get_guide_cat(time)
 
     # for any undefined from get_starcats, set to 15 instead of -999.00
-    guide_cat[guide_cat["mag"] == -999.00] = 15
+    if len(guide_cat) > 0:
+        guide_cat[guide_cat["mag"] == -999.00] = 15
 
     # Initialize the slot magnitudes to 15 (faint enough to not have impact)
     slot_mag = {slot: 15 for slot in range(8)}
     for slot in range(8):
+        if len(guide_cat) == 0:
+            continue
         guide_slots = guide_cat[guide_cat["slot"] == slot]
         if len(guide_slots) != 1:
             continue
@@ -994,8 +997,6 @@ def plot_dwell(
     for slot in range(8):
         slot_data = slots_data[slot]
 
-        if len(slot_data["TIME"]) == 0:
-            raise ValueError
         mag = slot_mag[slot] if slot in slot_mag else 15
         bgds = get_background_data_and_thresh(slot_data, mag)
         for key in bgds:
@@ -1094,18 +1095,19 @@ def plot_dwell(
         )
 
     aokalstr = fetch.Msid("AOKALSTR", CxoTime(start).secs, CxoTime(stop).secs)
-    values = np.array(aokalstr.vals).astype(int)
-    dtimes = (aokalstr.times - aokalstr.times[0]) / 1000.0
-    if len(dtimes) > num_bins:
-        a_times, a_data = rebin_data(dtimes, values, num_bins, np.min)
-        dtimes = a_times
-        values = a_data
+    if len(aokalstr.vals) > 0:
+        values = np.array(aokalstr.vals).astype(int)
+        dtimes = (aokalstr.times - aokalstr.times[0]) / 1000.0
+        if len(dtimes) > num_bins:
+            a_times, a_data = rebin_data(dtimes, values, num_bins, np.min)
+            dtimes = a_times
+            values = a_data
 
-    fig.add_trace(
-        go.Scatter(x=dtimes, y=values, mode="lines", name="aokalstr"),
-        row=1,
-        col=3,
-    )
+        fig.add_trace(
+            go.Scatter(x=dtimes, y=values, mode="lines", name="aokalstr"),
+            row=1,
+            col=3,
+        )
 
     fig.update_xaxes(matches="x")  # Define the layout
     fig.update_layout(
