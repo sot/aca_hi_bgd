@@ -1821,7 +1821,8 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
 
     bgd_events.write(EVENT_ARCHIVE, format="ascii.ecsv", overwrite=True)
 
-    make_summary_reports(bgd_events, outdir=opt.web_out)
+    ok = significant_events(new_events)
+    make_summary_reports(bgd_events[ok], outdir=opt.web_out)
 
 
 if __name__ == "__main__":
