@@ -1533,7 +1533,7 @@ def make_summary_reports(bgd_events, outdir="."):
 
 def plot_events_top(dwell_events):
     """
-    Make a bar chart of the number of events per calendar quarter.
+    Make a bar chart of the number of events per year.
 
     Parameters
     ----------
@@ -1552,16 +1552,16 @@ def plot_events_top(dwell_events):
         [CxoTime(d["dwell_datestart"]).frac_year for d in dwell_events]
     )
 
-    # bin the data by 0.25 years
-    bins = np.arange(np.floor(frac_years.min()), frac_years.max() + 0.25, 0.25)
+    # bin the data by year
+    bins = np.arange(np.floor(frac_years.min()), frac_years.max() + 0.25, 1.0)
 
     hist, _ = np.histogram(frac_years, bins=bins)
-    quarters = [f"{int(b):04d} Q{int((b % 1) * 4) + 1}" for b in bins[:-1]]
+    years = [f"{int(b):04d}" for b in bins[:-1]]
 
-    fig.add_trace(go.Bar(x=quarters, y=hist, name="Events"))
+    fig.add_trace(go.Bar(x=years, y=hist, name="Events"))
     fig.update_layout(
-        title="Number of ACA HI BGD events per quarter",
-        xaxis_title="Quarter",
+        title="Number of ACA HI BGD events per year",
+        xaxis_title="Year",
         yaxis_title="Number of events",
         height=400,
         width=600,
