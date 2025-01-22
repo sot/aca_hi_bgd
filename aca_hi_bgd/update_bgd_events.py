@@ -1095,19 +1095,19 @@ def plot_dwell(
         )
 
     aokalstr = fetch.Msid("AOKALSTR", CxoTime(start).secs, CxoTime(stop).secs)
-    if len(aokalstr.vals) > 0:
-        values = np.array(aokalstr.vals).astype(int)
-        dtimes = (aokalstr.times - aokalstr.times[0]) / 1000.0
-        if len(dtimes) > num_bins:
-            a_times, a_data = rebin_data(dtimes, values, num_bins, np.min)
-            dtimes = a_times
-            values = a_data
+    values = np.array(aokalstr.vals).astype(int)
+    dtimes = (aokalstr.times - aokalstr.times[0]) / 1000.0
+    if len(dtimes) > num_bins:
+        a_times, a_data = rebin_data(dtimes, values, num_bins, np.min)
+        dtimes = a_times
+        values = a_data
 
-        fig.add_trace(
-            go.Scatter(x=dtimes, y=values, mode="lines", name="aokalstr"),
-            row=1,
-            col=3,
-        )
+    fig.add_trace(
+        go.Scatter(x=dtimes, y=values, mode="lines", name="aokalstr"),
+        row=1,
+        col=3,
+    )
+
 
     fig.update_xaxes(matches="x")  # Define the layout
     fig.update_layout(
