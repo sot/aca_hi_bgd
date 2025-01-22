@@ -1108,7 +1108,6 @@ def plot_dwell(
         col=3,
     )
 
-
     fig.update_xaxes(matches="x")  # Define the layout
     fig.update_layout(
         xaxis_title="Obs Time (ks)",
