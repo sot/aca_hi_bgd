@@ -1,6 +1,5 @@
 import argparse
 import collections
-import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -512,10 +511,6 @@ def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
                 Path(outdir) / "events" / f"{year}" / f"dwell_{manvr.kalman_start}"
             )
             make_event_report(start, stop, obsid, dwell_events, event_outdir)
-            json.dump(
-                dwell_events.as_array().tolist(),
-                open((Path(event_outdir) / "events.json"), "w"),
-            )
             if len(bgd_events) > 0:
                 bgd_events = vstack([Table(bgd_events), dwell_events])
             else:
