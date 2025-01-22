@@ -1613,8 +1613,7 @@ def plot_events_pitch(dwell_events: Table) -> str:
 
 
 def significant_events(
-    bg_events: Table, n_slots: int = 3, slot_seconds: float = 20
-) -> np.array:
+    bg_events: Table) -> np.array:
     """
     Filter out events that are not significant.
 
@@ -1625,10 +1624,6 @@ def significant_events(
     ----------
     bg_events : astropy table
         Table of background events
-    n_slots : int
-        Minimum number of slots
-    slot_seconds : int
-        Minimum number of slot seconds
 
     Returns
     -------
@@ -1637,7 +1632,9 @@ def significant_events(
     """
     # Filter not null obsid, and either >= n_slots  or >= than duration seconds
     ok = ~np.in1d(bg_events["obsid"], [0, -1]) & (
-        (bg_events["n_slots"] >= n_slots) | (bg_events["slot_seconds"] >= slot_seconds)
+        (bg_events["n_slots"] >= 5)
+        | (bg_events["slot_seconds"] >= 60)
+        | (bg_events["notes"] != "")
     )
     return ok
 
