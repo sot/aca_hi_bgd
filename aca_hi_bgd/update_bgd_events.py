@@ -1212,6 +1212,8 @@ def get_images_for_plot(start: CxoTimeLike, stop: CxoTimeLike) -> tuple:
                     logimg = np.log(img)
                     pixvals = 255 * (logimg - 4) / (np.max(logimg) - 4)
             else:
+                outer_mins[slot].append(0)
+                bgdavgs[slot].append(0)
                 pixvals = np.zeros((sz, sz))
                 np.fill_diagonal(pixvals, 255)
 
