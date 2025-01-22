@@ -185,10 +185,14 @@ def get_raw_events(
         return events
 
     hit_times = np.sort(np.array(hit_times))
+    times_to_check = list(np.unique(hit_times))
+    # Add one more time to check that should not have any counts
+    # This is needed to more reliably end the intervals.
+    times_to_check.append(1.025)
 
     event_start = None
     last_check_time = None
-    for time in np.unique(hit_times):
+    for time in times_to_check:
         tok = (hit_times >= time) & (hit_times < time + detect_window)
         count = np.count_nonzero(tok)
         if event_start is None and count >= detect_hits:
