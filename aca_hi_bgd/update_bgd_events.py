@@ -364,10 +364,18 @@ def get_manvr_extra_data(start: CxoTimeLike, stop: CxoTimeLike) -> dict:
     else:
         pitch = -999
 
+    guide_cat = get_guide_cat(start)
+    expected_acqs = 0
+    if "MON" in guide_cat["type"]:
+        expected_acqs = 1
+
     # Check for multiple acquisitions and add notes
+    # An extra acquisition is expected for monitor window catalogs
     notes = []
     aoacaseq = fetch.Msid("AOACASEQ", start, stop)
-    if np.count_nonzero(aoacaseq.vals == "AQXN") > 0:
+    from cheta.utils import state_intervals
+    aca_states = state_intervals(aoacaseq.times, aoacaseq.vals)
+    if np.count_nonzero(aca_states["val"] == "AQXN") > expected_acqs:
         notes.append("Full REACQ")
 
     # Check for NSUN
@@ -640,6 +648,29 @@ def get_background_data_and_thresh(
     return bgds
 
 
+def get_guide_cat(time: CxoTimeLike) -> Table:
+    """
+    Get the guide catalog for a given time.
+
+    Parameters
+    ----------
+    time : str
+        Time to get guide catalog
+
+    Returns
+    -------
+    guide_cat : astropy.table.Table
+        Table of guide catalog data
+    """
+    starcats = get_starcats(CxoTime(time).secs - (3600 * 4), CxoTime(time).secs)
+    if len(starcats) == 0:
+        LOGGER.info(f"No starcat data for {CxoTime(time).date}")
+        return Table()
+    starcat = starcats[-1]
+    guide_cat = starcat[starcat["type"] != "ACQ"]
+    return guide_cat
+
+
 def get_slot_mags(time: CxoTimeLike) -> dict:
     """
     Get the slot magnitudes for a given time.
@@ -654,13 +685,7 @@ def get_slot_mags(time: CxoTimeLike) -> dict:
     slot_mag : dict
         Dictionary of slot magnitudes keyed by slot
     """
-    # Get catalog magnitudes for the things in this dwell
-    starcats = get_starcats(CxoTime(time).secs - (3600 * 4), CxoTime(time).secs)
-    if len(starcats) == 0:
-        LOGGER.info(f"No starcat data for {CxoTime(time).date}")
-        return {}
-    starcat = starcats[-1]
-    guide_cat = starcat[starcat["type"] != "ACQ"]
+    guide_cat = get_guide_cat(time)
 
     # for any undefined from get_starcats, set to 15 instead of -999.00
     guide_cat[guide_cat["mag"] == -999.00] = 15
