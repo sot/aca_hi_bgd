@@ -186,8 +186,9 @@ def get_raw_events(
 
     hit_times = np.sort(np.array(hit_times))
     times_to_check = list(np.unique(hit_times))
+
     # Add one more time to check that should not have any counts
-    # This is needed to more reliably end the intervals.
+    # This is needed to reliably end the intervals.
     times_to_check.append(1.025)
 
     event_start = None
@@ -383,9 +384,7 @@ def get_manvr_extra_data(start: CxoTimeLike, stop: CxoTimeLike) -> dict:
     if np.count_nonzero(aca_states["val"] == "AQXN") > expected_acqs:
         notes.append("Full REACQ")
 
-    # Check for NSUN
-    # from kadi import events
-    # full_dwell = events.dwells.filter(start__exact=dwell.start)[0]
+    # Check for NSUN and BRIT
     aopcadmd = fetch.Msid("AOPCADMD", start, CxoTime(stop).secs + 150)
     if aopcadmd.vals[-1] == "NSUN":
         notes.append("NSUN")
@@ -1087,7 +1086,7 @@ def plot_dwell(  # noqa: PLR0912, PLR0915 too many statements, too many branches
         )
 
     # Add the range of the events to the first two plots as a shaded region
-    for event in events:
+    for i, event in enumerate(events):
         fig.add_shape(
             type="rect",
             xref="x",
@@ -1116,6 +1115,25 @@ def plot_dwell(  # noqa: PLR0912, PLR0915 too many statements, too many branches
                 line_width=0,
             )
 
+        label = f"Start: {CxoTime(event['tstart']).date}<br>Stop: {CxoTime(event['tstop']).date}<br>event {i}"  # noqa: E501
+        # Add an invisible scatter trace for the hover-over tooltip
+        fig.add_trace(
+            go.Scatter(
+                x=[
+                    (event["tstart"] - CxoTime(start).secs) / 1000.0,
+                    (event["tstop"] - CxoTime(start).secs) / 1000.0,
+                ],
+                y=[0, 1],
+                mode="lines",
+                line={"width": 0},
+                fill="toself",
+                fillcolor="rgba(0,0,0,0)",
+                hoverinfo="text",
+                hovertext=label,
+                showlegend=False,
+            )
+        )
+
     aokalstr = fetch.Msid("AOKALSTR", CxoTime(start).secs, CxoTime(stop).secs)
     values = np.array(aokalstr.vals).astype(int)
     dtimes = (aokalstr.times - aokalstr.times[0]) / 1000.0
@@ -1128,6 +1146,7 @@ def plot_dwell(  # noqa: PLR0912, PLR0915 too many statements, too many branches
         go.Scatter(x=dtimes, y=values, mode="lines", name="aokalstr"),
         row=1,
         col=3 if has_6x6 else 2,
+        line={"color": "blue"},
     )
 
     fig.update_xaxes(matches="x")  # Define the layout
@@ -1602,21 +1621,31 @@ def plot_events_top(dwell_events):
     """
     fig = go.Figure()
 
-    # Count the events in each calendar quarter and make a bar chart
+    # Get the dates of the events
     frac_years = np.array(
         [CxoTime(d["dwell_datestart"]).frac_year for d in dwell_events]
     )
 
-    # bin the data by year
-    bins = np.arange(np.floor(frac_years.min()), frac_years.max() + 0.25, 1.0)
+    # Put these in year bins, but bin up so now is the end of the last year bin.
+    earliest = frac_years.min()
+    now_frac_year = CxoTime.now().frac_year
+    n_years = int(np.ceil(now_frac_year - earliest))
+    bins = np.arange(now_frac_year - n_years, now_frac_year + 1, 1.0)
 
     hist, _ = np.histogram(frac_years, bins=bins)
-    years = [f"{int(b):04d}" for b in bins[:-1]]
+    # get the bin centers for the plot
+    x = bins[:-1] + 0.5
+    # set the hovertext to include the count and the start/stop of the bin
+    hovertext = [
+        f"{y} events from {x0:.1f}:{x1:.1f}"
+        for x0, x1, y in zip(bins[:-1], bins[1:], hist, strict=False)
+    ]
 
-    fig.add_trace(go.Bar(x=years, y=hist, name="Events"))
+    fig.add_trace(
+        go.Bar(x=x, y=hist, name="Events", hovertext=hovertext, hoverinfo="text")
+    )
     fig.update_layout(
         title="Number of ACA HI BGD events per year",
-        xaxis_title="Year",
         yaxis_title="Number of events",
         height=400,
         width=600,
@@ -1650,8 +1679,17 @@ def plot_events_pitch(dwell_events: Table) -> str:
     # Get the pitch values and the dates
     pitches = [d["pitch"] for d in dwell_events]
     frac_year = [CxoTime(d["dwell_datestart"]).frac_year for d in dwell_events]
+    hovertext = [f"{d['obsid']}" for d in dwell_events]
 
-    fig.add_trace(go.Scatter(x=frac_year, y=pitches, mode="markers"))
+    fig.add_trace(
+        go.Scatter(
+            x=frac_year,
+            y=pitches,
+            hovertext=hovertext,
+            hoverinfo="text",
+            mode="markers",
+        )
+    )
 
     fig.update_layout(
         title="Pitch of ACA HI BGD events over time",
@@ -1770,9 +1808,10 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
                 / "events"
                 / f"{year}"
                 / f"dwell_{dwell_start}",
-                redo=True,
+                redo=False,
             )
-        make_summary_reports(bgd_events, outdir=opt.web_out)
+        ok = significant_events(bgd_events)
+        make_summary_reports(bgd_events[ok], outdir=opt.web_out)
         return
 
     # If the user has asked for a start time earlier than the end of the
@@ -1822,7 +1861,7 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
 
     bgd_events.write(EVENT_ARCHIVE, format="ascii.ecsv", overwrite=True)
 
-    ok = significant_events(new_events)
+    ok = significant_events(bgd_events)
     make_summary_reports(bgd_events[ok], outdir=opt.web_out)
 
 
