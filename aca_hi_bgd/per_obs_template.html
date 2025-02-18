@@ -17,28 +17,97 @@
                 h2 {
                     color: #990000;
                 }
+                .content-container {
+                    margin-left: 5px; /* Adjust the value as needed */
+                }
             </style>
   <title>ACA High Background Monitor</title>
 
 </HEADER>
 <BODY>
 
-<br></br>
-<A href="../../../index.html">Back to top index</A>
+<div class="container-md content-container">
 
-<div class="container-md"></div>
-<H3>High background events in dwell {{dwell_datestart}} obsid {{ obsid }}</H3>
-<H4>Full Dwell Plots</H4>
+<A href="../../../index.html">Back to top index</A>
+<BR></BR>
+
+
+<H2>High background events in dwell {{dwell_datestart}} obsid {{ obsid }}</H2>
+
+<H3>Full Dwell Plots</H3>
+
+<div class="accordion" id="accordionExampleOne">
+    <div class="accordion-item">
+        <h4 class="accordion-header" id="heading-one">
+            <button class="accordion-button collapsed bg-primary bg-opacity-25" type="button" data-bs-toggle="collapse"
+                data-bs-target="#info-one" aria-expanded="true" aria-controls="info-one">
+                Key to Dwell Plots
+            </button>
+        </h4>
+        <div id="info-one" class="accordion-collapse collapse" aria-labelledby="info-one"
+            data-bs-parent="#accordionExampleOne">
+            <div class="accordion-body bg-primary bg-opacity-10">
+                The plots below show the background behavior in each image slot
+                and the overall kalman star count in the OBC during the dwell.  For observations
+                with 6x6 image data, a plot is included (BGDAVG) of the telemetered image background avg.
+                For observations with 8x8 image data, a plot is included (corr background 8th outer min)
+                which includes an estimate of the per-image background level taken from the edge pixels.
+                For that metric, for each image, the edge pixels used in the dynamic background
+                (edge pixels + the corners of the 6x6) are sorted and the 8th lowest value is used.
+                A small correction value is also subtracted for images with very bright stars.
+                The corrected 8th outer min is just called "outermin" in the pixel image plot lower on the page
+                if present.
+                <br></br>
+
+                In the plot, any Y values beyond the max of the Y axis are clipped to the max value and plotted
+                with black arrows.
+                <br></br>
+
+                In the background plots, detected high background events are marked with pink background rectangles,
+                over the duration of the event.  An event is defined as the period of time when the background
+                is above the threshold ({{SIX_THRESHOLD}} e-/s for BGDAVG and {{EIGHT_THRESHOLD}} e-/s for
+                the corrected 8th outer min) for {{DETECT_HITS}} image samples within {{DETECT_WINDOW}}s.
+                <br></br>
+
+                For the background plots, to reduce plot size and loading time, the plots are binned by time.
+                For each bin, the maximum value in the bin is plotted.
+            </div>
+        </div>
+    </div>
+</div>
+
 <TABLE border=1>
 <tr><td>{{ bgd_html }}</td></tr>
-<tr><td>aca_view --start {{dwell_datestart}} --stop {{dwell_datestop}}</td></tr>
 </TABLE>
 
+<H3>aca_view for full dwell</H3>
+
+aca_view --start {{dwell_datestart}} --stop {{dwell_datestop}}
+<BR></BR>
 
 <H3>Pixel Data for up to 5 events in the dwell</H3>
+<div class="accordion" id="accordionExampleTwo">
+    <div class="accordion-item">
+        <h4 class="accordion-header" id="heading-two">
+            <button class="accordion-button collapsed bg-primary bg-opacity-25" type="button" data-bs-toggle="collapse"
+                data-bs-target="#info-two" aria-expanded="true" aria-controls="info-two">
+                More details on pixel data
+            </button>
+        </h4>
+        <div id="info-two" class="accordion-collapse collapse" aria-labelledby="info-two"
+            data-bs-parent="#accordionExampleTwo">
+            <div class="accordion-body bg-primary bg-opacity-10">
+                The animation below shows the pixel data for up to 5 events in the dwell.  To reduce plot
+                size and loading time, a fixed amount of time around the start of the event is shown, from
+                10 seconds before the event starts to 100 seconds after the event starts.
+            </div>
+        </div>
+    </div>
+</div>
+
 {% for event in events %}
 <HR></HR>
-<h4>Event {{event['index']}} starting at {{event['event_datestart']}}</h4>
+<h4>Event {{event['index']}} starting at {{event['datestart']}}</h4>
 <TABLE border=1>
     <tr><td>aca_view --start {{event['datestart']}} --stop {{event['datestop']}}</td></tr>
     <tr><td>event start {{event['datestart']}} duration {{ '%.1f'|format(event['duration'])}}s</td></tr>

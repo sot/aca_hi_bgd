@@ -19,6 +19,8 @@ from plotly.subplots import make_subplots
 from ska_helpers.logging import basic_logger
 from ska_helpers.run_info import log_run_info
 from ska_numpy import interpolate
+from kadi.commands import get_cmds
+import astropy.units as u
 
 from aca_hi_bgd import __version__
 
@@ -38,6 +40,7 @@ GSHEET_USER_URL = f"{url_start}/{DOC_ID}/edit?usp=sharing"
 
 
 LOGGER = basic_logger(__name__, level="INFO")
+fetch.data_source.set('cxc', 'maude allow_subset=False')
 
 
 def get_opt():
@@ -222,7 +225,7 @@ def combine_events(events: list, tol: float = 30) -> list:
         List of dictionaries with keys "tstart" and "tstop" for each event.
         Assumed to already be sorted by "tstart"
     tol : float
-        The tolerance for merging overlapping events
+        The tolerance for merging overlapping events in seconds.
 
     Returns
     -------
@@ -248,8 +251,8 @@ def calculate_slot_seconds(imgsize: np.ndarray) -> float:
     Calculate a metric that adds up the time for each slot where the background is high.
 
     While the time between images (based on image size) is not really related to the time of the
-    high background hit, using the time between images as a "chunk" that can be summed to get a
-    metric of how long the background is high.
+    high background hit, it is not unreasonable to use the time between images as a "chunk" that
+    can be summed to get a metric of how long the background is high.
 
     Parameters
     ----------
@@ -359,11 +362,20 @@ def get_manvr_extra_data(start: CxoTimeLike, stop: CxoTimeLike) -> dict:
     """
     Get extra data for a dwell
 
-    :param dwell_events: list of dictionaries of events
-    :returns: dict of extra data
+    Parameters
+    ----------
+    start : CxoTimeLike
+        Start of dwell
+    stop : CxoTimeLike
+        End of dwell
+
+    Returns
+    -------
+    extra_data : dict
+        Dictionary of extra data for the dwell including "pitch" and "notes"
     """
 
-    pitchs = fetch.Msid("DP_PITCH", start, stop, stat="5min")
+    pitchs = fetch.Msid("DP_PITCH", start, stop)
     if len(pitchs.vals) > 0:
         pitch = np.median(pitchs.vals)
     else:
@@ -425,9 +437,11 @@ def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
     """
     start = CxoTime(start)
     stop = CxoTime(stop)
+    LOGGER.info(f"Processing with start: {start} and stop: {stop}")
     manvrs = events.manvrs.filter(
         kalman_start__gte=start.date, kalman_start__lte=stop.date, n_dwell__gt=0
     )
+    LOGGER.info(f"Found {len(manvrs)} maneuvers to process")
 
     bgd_events = []
     if len(manvrs) == 0:
@@ -445,10 +459,6 @@ def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
         except ValueError:
             LOGGER.info(f"Skipping manvr {manvr}.")
             continue
-
-        LOGGER.info(
-            f"Processing manvr {manvr} obsid {obsid} kalman_start {manvr.kalman_start}"
-        )
 
         if manvr.obsid == 0:
             LOGGER.info(f"Skipping manvr {manvr} obsid {obsid} in anomaly or recovery.")
@@ -485,6 +495,7 @@ def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
         aopcadmd = fetch.Msid("AOPCADMD", start, stop)
         if np.any(aopcadmd.vals != "NPNT"):
             stop = aopcadmd.times[np.where(aopcadmd.vals != "NPNT")[0][0]]
+
         # try:
         dwell_events, dwell_end_time, slot_metrics = get_manvr_events(
             start, stop, obsid
@@ -496,25 +507,24 @@ def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
         if dwell_end_time is not None:
             time_last_processed = dwell_end_time
 
-        # save per slot data
+        # Assemble a row of data for the dwell metrics
         dwell_metric = {"dwell": start, "obsid": obsid}
         for slot in slot_metrics:
             for col in slot_metrics[slot]:
                 dwell_metric[f"{col}_s{slot}"] = slot_metrics[slot][col]
         dwell_metrics.append(dwell_metric)
 
-        if len(dwell_metrics) > 1:
+        if len(dwell_metrics) > 0:
             Path(outdir).mkdir(parents=True, exist_ok=True)
             Table(dwell_metrics).write(
                 Path(outdir) / "dwell_metrics.csv", overwrite=True
             )
 
-        if len(dwell_events) > 0:
-            year = int(CxoTime(start).frac_year)
-            event_outdir = (
-                Path(outdir) / "events" / f"{year}" / f"dwell_{manvr.kalman_start}"
-            )
-            make_event_report(start, stop, obsid, dwell_events, event_outdir)
+            #year = int(CxoTime(start).frac_year)
+            #event_outdir = (
+            #    Path(outdir) / "events" / f"{year}" / f"dwell_{manvr.kalman_start}"
+            #)
+            #make_event_report(start, stop, obsid, dwell_events, event_outdir)
             if len(bgd_events) > 0:
                 bgd_events = vstack([Table(bgd_events), dwell_events])
             else:
@@ -826,7 +836,7 @@ def get_manvr_events(start: CxoTimeLike, stop: CxoTimeLike, obsid: int) -> tuple
     return bgd_events, stop, slots_metrics
 
 
-def make_event_report(
+def make_dwell_report(
     dwell_start: CxoTimeLike,
     dwell_stop: CxoTimeLike,
     obsid: int,
@@ -882,6 +892,10 @@ def make_event_report(
         obsid=obsid,
         events=events,
         bgd_html=bgd_html,
+        DETECT_HITS=DETECT_HITS,
+        DETECT_WINDOW=DETECT_WINDOW,
+        SIX_THRESHOLD=SIX_THRESHOLD,
+        EIGHT_THRESHOLD=EIGHT_THRESHOLD,
     )
     f = open(Path(outdir) / "index.html", "w")
     f.write(page)
@@ -1010,144 +1024,14 @@ def plot_dwell(  # noqa: PLR0912, PLR0915 too many statements, too many branches
 
     # use a fixed number of bins to speed up the plotting if there are a lot of data points
     num_bins = 2000
+    ymax_outermin = 500
 
-    for slot in range(8):
-        slot_data = slots_data[slot]
-
-        mag = slot_mag[slot] if slot in slot_mag else 15
-        bgds = get_background_data_and_thresh(slot_data, mag)
-        for key in bgds:
-            slot_data[key] = bgds[key]
-        ok = slot_data["IMGFUNC"] == 1
-
-        if np.count_nonzero(ok) == 0:
-            continue
-
-        times = slot_data["TIME"][ok] - CxoTime(start).secs
-        dtimes = (times - times[0]) / 1000.0
-        y1_data = slot_data["bgdavg_es"][ok]
-        y2_data = slot_data["outer_min_7_magsub"][ok]
-
-        # Bin the data to make these plots faster
-        if len(dtimes) > num_bins:
-            a_times, a_data = rebin_data(dtimes, y1_data, num_bins, np.max)
-            _, b_data = rebin_data(dtimes, y2_data, num_bins, np.max)
-            dtimes = a_times
-            y1_data = a_data
-            y2_data = b_data
-
-        if has_6x6:
-            fig.add_trace(
-                go.Scatter(
-                    x=dtimes,
-                    y=y1_data,
-                    mode="markers",
-                    marker={"color": colors[slot]},
-                    legendgroup=f"Slot {slot}",
-                    showlegend=False,
-                ),
-                row=1,
-                col=1,
-            )
-
-        fig.add_trace(
-            go.Scatter(
-                x=dtimes,
-                y=y2_data,
-                mode="markers",
-                name=f"Slot {slot}",
-                marker={"color": colors[slot]},
-                legendgroup=f"Slot {slot}",
-                showlegend=True,
-            ),
-            row=1,
-            col=2 if has_6x6 else 1,
-        )
-
-        # Add horizontal line for the threshold in a subplot
-        threshold = np.median(slot_data["threshold"][ok])
-        if np.median(slot_data["IMGSIZE"][ok]) == 6:
-            figure_col = 1
-        elif np.median(slot_data["IMGSIZE"][ok]) == 8:
-            figure_col = 2 if has_6x6 else 1
-        else:
-            continue
-        fig.add_trace(
-            go.Scatter(
-                x=[min(dtimes), max(dtimes)],
-                y=[threshold, threshold],
-                mode="lines",
-                line={"color": colors[slot], "width": 2, "dash": "dash"},
-                legendgroup=f"Slot {slot}",
-                showlegend=False,
-            ),
-            row=1,
-            col=figure_col,
-        )
+    add_slot_background_traces(fig, start, slot_mag, slots_data, has_6x6, colors, num_bins, ymax_outermin)
 
     # Add the range of the events to the first two plots as a shaded region
-    for i, event in enumerate(events):
-        fig.add_shape(
-            type="rect",
-            xref="x",
-            yref="paper",
-            x0=(event["tstart"] - CxoTime(start).secs) / 1000.0,
-            x1=(event["tstop"] - CxoTime(start).secs) / 1000.0,
-            y0=0,
-            y1=1,
-            fillcolor="LightSalmon",
-            opacity=0.5,
-            layer="below",
-            line_width=0,
-        )
-        if has_6x6:
-            fig.add_shape(
-                type="rect",
-                xref="x2",
-                yref="paper",
-                x0=(event["tstart"] - CxoTime(start).secs) / 1000.0,
-                x1=(event["tstop"] - CxoTime(start).secs) / 1000.0,
-                y0=0,
-                y1=1,
-                fillcolor="LightSalmon",
-                opacity=0.5,
-                layer="below",
-                line_width=0,
-            )
+    add_event_shade_regions(fig, start, events, has_6x6)
 
-        label = f"Start: {CxoTime(event['tstart']).date}<br>Stop: {CxoTime(event['tstop']).date}<br>event {i}"  # noqa: E501
-        # Add an invisible scatter trace for the hover-over tooltip
-        fig.add_trace(
-            go.Scatter(
-                x=[
-                    (event["tstart"] - CxoTime(start).secs) / 1000.0,
-                    (event["tstop"] - CxoTime(start).secs) / 1000.0,
-                ],
-                y=[0, 1],
-                mode="lines",
-                line={"width": 0},
-                fill="toself",
-                fillcolor="rgba(0,0,0,0)",
-                hoverinfo="text",
-                hovertext=label,
-                showlegend=False,
-            )
-        )
-
-    aokalstr = fetch.Msid("AOKALSTR", CxoTime(start).secs, CxoTime(stop).secs)
-    values = np.array(aokalstr.vals).astype(int)
-    dtimes = (aokalstr.times - aokalstr.times[0]) / 1000.0
-    if len(dtimes) > num_bins:
-        a_times, a_data = rebin_data(dtimes, values, num_bins, np.min)
-        dtimes = a_times
-        values = a_data
-
-    fig.add_trace(
-        go.Scatter(x=dtimes, y=values, mode="lines", name="aokalstr"),
-        row=1,
-        col=3 if has_6x6 else 2,
-        line={"color": "blue"},
-    )
+    add_aokalstr_trace(fig, start, stop, has_6x6, num_bins)
 
     fig.update_xaxes(matches="x")  # Define the layout
 
@@ -1201,6 +1085,157 @@ def plot_dwell(  # noqa: PLR0912, PLR0915 too many statements, too many branches
     )
 
     return html
+
+
+
+def add_aokalstr_trace(fig, start, stop, has_6x6, num_bins):
+    aokalstr = fetch.Msid("AOKALSTR", CxoTime(start).secs, CxoTime(stop).secs)
+    values = np.array(aokalstr.vals).astype(int)
+    dtimes = (aokalstr.times - aokalstr.times[0]) / 1000.0
+    if len(dtimes) > num_bins:
+        a_times, a_data = rebin_data(dtimes, values, num_bins, np.min)
+        dtimes = a_times
+        values = a_data
+
+    fig.add_trace(
+        go.Scatter(x=dtimes, y=values, mode="lines", name="aokalstr",
+                   line={"color": "blue"}),
+        row=1,
+        col=3 if has_6x6 else 2,
+    )
+
+def add_event_shade_regions(fig, start, events, has_6x6):
+    for i, event in enumerate(events):
+
+        # Add a shaded region for the event
+        fig.add_shape(
+            type="rect",
+            xref="x2" if has_6x6 else "x",
+            yref="paper",
+            x0=(event["tstart"] - CxoTime(start).secs) / 1000.0,
+            x1=(event["tstop"] - CxoTime(start).secs) / 1000.0,
+            y0=0,
+            y1=1,
+            fillcolor="LightSalmon",
+            opacity=0.5,
+            layer="below",
+            line_width=0,
+        )
+
+        label = f"Start: {CxoTime(event['tstart']).date}<br>Stop: {CxoTime(event['tstop']).date}<br>event {i}"  # noqa: E501
+        # Add an invisible scatter trace for the hover-over tooltip
+        fig.add_trace(
+            go.Scatter(
+                x=[
+                    (event["tstart"] - CxoTime(start).secs) / 1000.0,
+                    (event["tstop"] - CxoTime(start).secs) / 1000.0,
+                ],
+                y=[0, 1],
+                mode="lines",
+                line={"width": 0},
+                fill="toself",
+                fillcolor="rgba(0,0,0,0)",
+                hoverinfo="text",
+                hovertext=label,
+                showlegend=False,
+            )
+        )
+
+def add_slot_background_traces(fig, start, slot_mag, slots_data, has_6x6, colors, num_bins, ymax_outermin=500):
+    for slot in range(8):
+        slot_data = slots_data[slot]
+
+        mag = slot_mag[slot] if slot in slot_mag else 15
+        bgds = get_background_data_and_thresh(slot_data, mag)
+        for key in bgds:
+            slot_data[key] = bgds[key]
+        ok = slot_data["IMGFUNC"] == 1
+
+        if np.count_nonzero(ok) == 0:
+            continue
+
+        times = slot_data["TIME"][ok] - CxoTime(start).secs
+        dtimes = (times - times[0]) / 1000.0
+        y1_data = slot_data["bgdavg_es"][ok]
+        y2_data = slot_data["outer_min_7_magsub"][ok]
+
+        # Bin the data to make these plots faster
+        if len(dtimes) > num_bins:
+            a_times, a_data = rebin_data(dtimes, y1_data, num_bins, np.max)
+            _, b_data = rebin_data(dtimes, y2_data, num_bins, np.max)
+            dtimes = a_times
+            y1_data = a_data
+            y2_data = b_data
+
+        if has_6x6:
+            fig.add_trace(
+                go.Scatter(
+                    x=dtimes,
+                    y=y1_data,
+                    mode="markers",
+                    marker={"color": colors[slot]},
+                    legendgroup=f"Slot {slot}",
+                    showlegend=False,
+                ),
+                row=1,
+                col=1,
+            )
+
+        fig.add_trace(
+            go.Scatter(
+                x=dtimes,
+                y=y2_data,
+                mode="markers",
+                name=f"Slot {slot}",
+                marker={"color": colors[slot]},
+                legendgroup=f"Slot {slot}",
+                showlegend=True,
+            ),
+            row=1,
+            col=2 if has_6x6 else 1,
+        )
+
+        # Add a marker at just below the max value for each point beyond the max value
+        high_ok = y2_data > ymax_outermin
+        hovertext = [f"slot {slot}, yval {int(y)}" for y in y2_data[high_ok]]
+        fig.add_trace(
+            go.Scatter(
+                x=dtimes[high_ok],
+                y=ymax_outermin * np.ones_like(dtimes[high_ok]) - 20,
+                mode="markers",
+                marker={"color": "black", "symbol": "arrow-bar-up", "size": 10},
+                legendgroup=f"Slot {slot}",
+                showlegend=False,
+                hoverinfo="text",
+                hovertext=hovertext,
+            ),
+            row=1,
+            col=2 if has_6x6 else 1,
+        )
+
+
+
+
+        # Add horizontal line for the threshold in a subplot
+        threshold = np.median(slot_data["threshold"][ok])
+        if np.median(slot_data["IMGSIZE"][ok]) == 6:
+            figure_col = 1
+        elif np.median(slot_data["IMGSIZE"][ok]) == 8:
+            figure_col = 2 if has_6x6 else 1
+        else:
+            continue
+        fig.add_trace(
+            go.Scatter(
+                x=[min(dtimes), max(dtimes)],
+                y=[threshold, threshold],
+                mode="lines",
+                line={"color": colors[slot], "width": 2, "dash": "dash"},
+                legendgroup=f"Slot {slot}",
+                showlegend=False,
+            ),
+            row=1,
+            col=figure_col,
+        )
 
 
 def get_images_for_plot(start: CxoTimeLike, stop: CxoTimeLike) -> tuple:
@@ -1445,11 +1480,6 @@ def plot_images(start: CxoTimeLike, stop: CxoTimeLike) -> str:  # noqa: PLR0915 
             }
         )
 
-    # Calculate the exact center for each subplot using domain properties
-    subplot_centers = [
-        (fig.layout[f"xaxis{i}"].domain[0] + fig.layout[f"xaxis{i}"].domain[1]) / 2
-        for i in range(1, num_stacks + 1)
-    ]
 
     # Adjust the y-position of the labels
     label_y_position = -0.4  # Move closer to the images
@@ -1478,7 +1508,7 @@ def plot_images(start: CxoTimeLike, stop: CxoTimeLike) -> str:  # noqa: PLR0915 
 
         annotations = [
             {
-                "x": subplot_centers[stack_idx],  # Use exact center of each subplot
+                "x": 0,
                 "y": label_y_position,  # Adjusted position closer to images
                 "xref": "x domain" if stack_idx == 0 else f"x{stack_idx + 1} domain",
                 "yref": "y domain" if stack_idx == 0 else f"y{stack_idx + 1} domain",
@@ -1538,10 +1568,6 @@ def make_summary_reports(bgd_events, outdir="."):
     # Get notes
     extra_notes = get_extra_notes()
 
-    # For the HTML page, reduce to just the significant events
-    ok = significant_events(bgd_events)
-    bgd_events = bgd_events[ok]
-
     dwell_events = []
     for dwell_start in np.unique(bgd_events["dwell_datestart"]):
         events = bgd_events[bgd_events["dwell_datestart"] == dwell_start]
@@ -1564,6 +1590,7 @@ def make_summary_reports(bgd_events, outdir="."):
             "n_events": len(events),
             "max_dur": np.max(events["duration"]),
             "max_slot_secs": np.max(events["slot_seconds"]),
+            "max_bgd": np.max(events["max_bgd"]),
             "n_slots": len(slots),
             "obsid": events["obsid"][0],
             "reldir": f"events/{int(CxoTime(dwell_start).frac_year)}/dwell_{dwell_start}",
@@ -1585,10 +1612,16 @@ def make_summary_reports(bgd_events, outdir="."):
 
     if len(dwell_events) > 0:
         events_top_html = plot_events_top(dwell_events)
-        events_by_pitch_html = plot_events_pitch(bgd_events)
+        events_by_pitch_html = plot_events_pitch(dwell_events)
+        events_by_delay_html = plot_events_delay(dwell_events)
+        events_rel_perigee_html = plot_events_rel_perigee(bgd_events)
+        #events_max_bgd_html = plot_events_max_bgd(dwell_events)
     else:
         events_top_html = ""
         events_by_pitch_html = ""
+        events_by_delay_html = ""
+        events_rel_perigee_html = ""
+        #events_max_bgd_html = ""
 
     dwell_events = sorted(dwell_events, key=lambda i: i["dwell_datestart"])
     dwell_events = dwell_events[::-1]
@@ -1599,6 +1632,9 @@ def make_summary_reports(bgd_events, outdir="."):
         obs_events=dwell_events,
         events_top_html=events_top_html,
         events_by_pitch_html=events_by_pitch_html,
+        events_by_delay_html=events_by_delay_html,
+        events_rel_perigee_html=events_rel_perigee_html,
+        GSHEET_USER_URL=GSHEET_USER_URL,
     )
     f = open(Path(outdir) / "index.html", "w")
     f.write(page)
@@ -1660,7 +1696,104 @@ def plot_events_top(dwell_events):
     )
 
 
-def plot_events_pitch(dwell_events: Table) -> str:
+def plot_events_rel_perigee(bgd_events: Table) -> str:
+
+    from kadi.commands import get_cmds
+    import astropy.units as u
+    frac_year = [CxoTime(d["dwell_datestart"]).frac_year for d in bgd_events]
+
+    dtimes_perigee = []
+    for d in bgd_events:
+        # Get orbit events for a week before and after the dwell start
+        cmds = get_cmds(
+            start=CxoTime(d["tstart"]) - 7 * u.day,
+            stop=CxoTime(d["tstart"]) + 7 * u.day,
+            type="ORBPOINT",
+            event_type="EPERIGEE",
+        )
+        # Find the time of the closest perigee
+        if len(cmds) > 0:
+            # Get the delta time to all perigee events
+            dtime_peri = CxoTime(d["tstart"]).secs - cmds["time"]
+
+            # Find the closest perigee event
+            idx = np.argmin(np.abs(dtime_peri))
+
+            # save the delta time
+            dtimes_perigee.append(dtime_peri[idx])
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=frac_year,
+            y=dtimes_perigee,
+            mode="markers",
+        )
+    )
+    fig.update_layout(
+        title="Event start time relative to perigee",
+        xaxis_title="Time",
+        yaxis_title="Time (s)",
+        height=400,
+        width=600,
+    )
+    return fig.to_html(
+        full_html=False,
+        include_plotlyjs="cdn",
+        config={"displayModeBar": True},
+    )
+
+
+def plot_events_delay(dwell_events: list) -> str:
+    """
+    Plot delay between dwell starts and event starts.
+
+    Make a plotly scatter plot of the time from the start of the dwell to the
+    time of the event for each high background event.
+
+    Parameters
+    ----------
+    dwell_events : astropy table
+        Table of high background events
+
+    Returns
+    -------
+    html : str
+        HTML representation of the plot
+    """
+    fig = go.Figure()
+
+    # Get the delay values and the dates
+    # For each event, the "delay" is the time between the dwell start and the first event start
+    delays = [CxoTime(d['first_event_start']).secs - CxoTime(d['dwell_datestart']).secs for d in dwell_events]
+    frac_year = [CxoTime(d["dwell_datestart"]).frac_year for d in dwell_events]
+    hovertext = [f"obs{d['obsid']}" for d in dwell_events]
+
+    fig.add_trace(
+        go.Scatter(
+            x=frac_year,
+            y=delays,
+            mode="markers",
+            hovertext=hovertext,
+            hoverinfo="text",
+        )
+    )
+
+    fig.update_layout(
+        title="Event start time relative to dwell start",
+        xaxis_title="Time",
+        yaxis_title="Delay (s)",
+        height=400,
+        width=600,
+    )
+    return fig.to_html(
+        full_html=False,
+        include_plotlyjs="cdn",
+        config={"displayModeBar": True},
+    )
+
+
+def plot_events_pitch(dwell_events: list) -> str:
     """
     Make a plotly scatter plot of the pitch of high background events over time.
 
@@ -1731,35 +1864,6 @@ def significant_events(bg_events: Table) -> np.array:
     return ok
 
 
-def review_and_send_email(events, opt):
-    """
-    Review the events and send email if needed.
-
-    Parameters
-    ----------
-    events : astropy table
-        Table of events
-    opt : argparse.Namespace
-        Command line options
-
-    Returns
-    -------
-    None
-    """
-    for dwell_start in np.unique(events["dwell_datestart"]):
-        obs_events = events[events["dwell_datestart"] == dwell_start]
-        obsid = obs_events["obsid"][0]
-        year = int(CxoTime(dwell_start).frac_year)
-        url = f"{opt.web_url}/events/{year}/dwell_{dwell_start}"
-        send_mail(
-            LOGGER,
-            opt,
-            f"ACA HI BGD event in obsid {obsid}",
-            f"HI BGD in obsid {obsid} report at {url}",
-            __file__,
-        )
-
-
 def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many statements
     """
     Do high background processing.
@@ -1792,14 +1896,15 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
         bgd_events["notes"] = bgd_events["notes"].filled("")
 
     if opt.replot:
-        for dwell_start in np.unique(bgd_events["dwell_datestart"]):
+        ok = significant_events(bgd_events)
+        for dwell_start in np.unique(bgd_events["dwell_datestart"][ok]):
             obs_events = bgd_events[bgd_events["dwell_datestart"] == dwell_start]
             dwell_stop = obs_events["dwell_datestop"][0]
             obsid = obs_events["obsid"][0]
             year = int(CxoTime(dwell_start).frac_year)
             url = f"{opt.web_url}/events/{year}/dwell_{dwell_start}"
             LOGGER.info(f"Replotting HI BGD event in obsid {obsid} {url}")
-            make_event_report(
+            make_dwell_report(
                 dwell_start,
                 dwell_stop,
                 obsid,
@@ -1808,7 +1913,7 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
                 / "events"
                 / f"{year}"
                 / f"dwell_{dwell_start}",
-                redo=False,
+                redo=True,
             )
         ok = significant_events(bgd_events)
         make_summary_reports(bgd_events[ok], outdir=opt.web_out)
@@ -1816,7 +1921,7 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
 
     # If the user has asked for a start time earlier than the end of the
     # table, delete possibly conflicting events in the table.
-    if opt.start is not None and opt.stop is not None:
+    if opt.start is not None:
         if start is not None:
             bgd_events = bgd_events[
                 (bgd_events["dwell_datestart"] < CxoTime(opt.start).date)
@@ -1827,21 +1932,39 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
         start = CxoTime(-7)
 
     new_events, last_proc_time = get_events(start, stop=opt.stop, outdir=opt.web_out)
+
     if len(new_events) > 0:
         new_events = Table(new_events)
 
+        # Filter to just the big events for emails and report page
         ok = significant_events(new_events)
         big_events = new_events[ok]
-        if len(opt.emails) > 0:
-            review_and_send_email(events=big_events, opt=opt)
 
-        ok = ~np.in1d(new_events["obsid"], [0, -1])
-        for dwell_start in np.unique(new_events["dwell_datestart"][ok]):
+        for dwell_start in np.unique(big_events["dwell_datestart"]):
             obs_events = new_events[new_events["dwell_datestart"] == dwell_start]
             year = int(CxoTime(dwell_start).frac_year)
+            event_outdir = (
+                Path(opt.web_out) / "events" / f"{year}" / f"dwell_{dwell_start}"
+            )
             obsid = obs_events["obsid"][0]
             url = f"{opt.web_url}/events/{year}/dwell_{dwell_start}"
+
+            make_dwell_report(
+                dwell_start,
+                obs_events["dwell_datestop"][0],
+                obsid,
+                obs_events,
+                outdir=event_outdir,
+            )
             LOGGER.warning(f"HI BGD event in obsid {obsid} {url}")
+            if len(opt.emails) > 0:
+                send_mail(
+                    LOGGER,
+                    opt,
+                    f"ACA HI BGD event in obsid {obsid}",
+                    f"HI BGD in obsid {obsid} report at {url}",
+                    __file__,
+                )
 
     if len(bgd_events) > 0:
         bgd_events = vstack([bgd_events, new_events])
@@ -1861,6 +1984,7 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
 
     bgd_events.write(EVENT_ARCHIVE, format="ascii.ecsv", overwrite=True)
 
+    # Filter *all* of the events again to make the summary report
     ok = significant_events(bgd_events)
     make_summary_reports(bgd_events[ok], outdir=opt.web_out)
 
