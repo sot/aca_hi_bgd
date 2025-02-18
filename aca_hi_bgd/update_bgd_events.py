@@ -4,6 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import agasc
+import astropy.units as u
 import numpy as np
 import plotly.graph_objects as go
 from acdc.common import send_mail
@@ -14,13 +15,11 @@ from cheta import fetch
 from cxotime import CxoTime, CxoTimeLike
 from jinja2 import Template
 from kadi import events
-from kadi.commands import get_starcats
+from kadi.commands import get_cmds, get_starcats
 from plotly.subplots import make_subplots
 from ska_helpers.logging import basic_logger
 from ska_helpers.run_info import log_run_info
 from ska_numpy import interpolate
-from kadi.commands import get_cmds
-import astropy.units as u
 
 from aca_hi_bgd import __version__
 
@@ -40,7 +39,7 @@ GSHEET_USER_URL = f"{url_start}/{DOC_ID}/edit?usp=sharing"
 
 
 LOGGER = basic_logger(__name__, level="INFO")
-fetch.data_source.set('cxc', 'maude allow_subset=False')
+fetch.data_source.set("cxc", "maude allow_subset=False")
 
 
 def get_opt():
@@ -520,11 +519,11 @@ def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
                 Path(outdir) / "dwell_metrics.csv", overwrite=True
             )
 
-            #year = int(CxoTime(start).frac_year)
-            #event_outdir = (
+            # year = int(CxoTime(start).frac_year)
+            # event_outdir = (
             #    Path(outdir) / "events" / f"{year}" / f"dwell_{manvr.kalman_start}"
-            #)
-            #make_event_report(start, stop, obsid, dwell_events, event_outdir)
+            # )
+            # make_event_report(start, stop, obsid, dwell_events, event_outdir)
             if len(bgd_events) > 0:
                 bgd_events = vstack([Table(bgd_events), dwell_events])
             else:
@@ -1026,7 +1025,9 @@ def plot_dwell(  # noqa: PLR0912, PLR0915 too many statements, too many branches
     num_bins = 2000
     ymax_outermin = 500
 
-    add_slot_background_traces(fig, start, slot_mag, slots_data, has_6x6, colors, num_bins, ymax_outermin)
+    add_slot_background_traces(
+        fig, start, slot_mag, slots_data, has_6x6, colors, num_bins, ymax_outermin
+    )
 
     # Add the range of the events to the first two plots as a shaded region
     add_event_shade_regions(fig, start, events, has_6x6)
@@ -1087,7 +1088,6 @@ def plot_dwell(  # noqa: PLR0912, PLR0915 too many statements, too many branches
     return html
 
 
-
 def add_aokalstr_trace(fig, start, stop, has_6x6, num_bins):
     aokalstr = fetch.Msid("AOKALSTR", CxoTime(start).secs, CxoTime(stop).secs)
     values = np.array(aokalstr.vals).astype(int)
@@ -1098,15 +1098,16 @@ def add_aokalstr_trace(fig, start, stop, has_6x6, num_bins):
         values = a_data
 
     fig.add_trace(
-        go.Scatter(x=dtimes, y=values, mode="lines", name="aokalstr",
-                   line={"color": "blue"}),
+        go.Scatter(
+            x=dtimes, y=values, mode="lines", name="aokalstr", line={"color": "blue"}
+        ),
         row=1,
         col=3 if has_6x6 else 2,
     )
 
+
 def add_event_shade_regions(fig, start, events, has_6x6):
     for i, event in enumerate(events):
-
         # Add a shaded region for the event
         fig.add_shape(
             type="rect",
@@ -1141,7 +1142,10 @@ def add_event_shade_regions(fig, start, events, has_6x6):
             )
         )
 
-def add_slot_background_traces(fig, start, slot_mag, slots_data, has_6x6, colors, num_bins, ymax_outermin=500):
+
+def add_slot_background_traces(
+    fig, start, slot_mag, slots_data, has_6x6, colors, num_bins, ymax_outermin=500
+):
     for slot in range(8):
         slot_data = slots_data[slot]
 
@@ -1212,9 +1216,6 @@ def add_slot_background_traces(fig, start, slot_mag, slots_data, has_6x6, colors
             row=1,
             col=2 if has_6x6 else 1,
         )
-
-
-
 
         # Add horizontal line for the threshold in a subplot
         threshold = np.median(slot_data["threshold"][ok])
@@ -1381,6 +1382,125 @@ def plot_images(start: CxoTimeLike, stop: CxoTimeLike) -> str:  # noqa: PLR0915 
         )
 
     # Update layout with shared colorbar and axis properties
+    set_animation_layout(num_frames, COLORMAP, fig)
+
+    # Hide axis tick labels, grids, and zero lines for all subplots
+    customize_animation_layout_axes(num_stacks, fig)
+
+    # Adjust the y-position of the labels
+    label_y_position = -0.4  # Move closer to the images
+
+    # Create frames for the animation
+    frames = make_animation_frames(
+        times,
+        image_stacks,
+        bgdavgs,
+        outer_mins,
+        imagesizes,
+        num_stacks,
+        num_frames,
+        COLORMAP,
+        label_y_position,
+    )
+
+    # Add frames to the figure
+    fig.frames = frames
+
+    # fig.show()
+    # filename = "images_{}.html".format(CxoTime(start).date)
+    html = fig.to_html(
+        full_html=False,
+        include_plotlyjs="cdn",
+        config={"displayModeBar": True},
+        auto_play=False,
+    )
+
+    return html
+
+
+def make_animation_frames(
+    times,
+    image_stacks,
+    bgdavgs,
+    outer_mins,
+    imagesizes,
+    num_stacks,
+    num_frames,
+    COLORMAP,
+    label_y_position,
+):
+    frames = []
+    for frame_idx in range(num_frames):
+        frame_data = [
+            go.Heatmap(
+                z=stack[frame_idx],
+                colorscale=COLORMAP,
+                showscale=False,  # Shared colorbar
+                zmin=0,
+                zmax=255,
+            )
+            for stack in image_stacks
+        ]
+
+        # Centered labels: use calculated subplot centers
+        new_titles = []
+        for i in range(num_stacks):
+            if imagesizes[i][frame_idx] == 6:
+                new_titles.append(f"bgdavg: {bgdavgs[i][frame_idx]:.0f}")
+            else:
+                new_titles.append(f"outermin: {outer_mins[i][frame_idx]:.0f}")
+
+        annotations = [
+            {
+                "x": 0,
+                "y": label_y_position,  # Adjusted position closer to images
+                "xref": "x domain" if stack_idx == 0 else f"x{stack_idx + 1} domain",
+                "yref": "y domain" if stack_idx == 0 else f"y{stack_idx + 1} domain",
+                "text": new_titles[stack_idx],
+                "showarrow": False,
+                "font": {"size": 12},
+                "align": "left",  # Center-align text
+            }
+            for stack_idx in range(num_stacks)
+        ]
+        frames.append(
+            go.Frame(
+                data=frame_data,
+                name=f"frame_{frame_idx}",
+                layout=go.Layout(
+                    title=f"Date: {CxoTime(times[frame_idx]).date}",
+                    annotations=annotations,
+                ),
+            )
+        )
+
+    return frames
+
+
+def customize_animation_layout_axes(num_stacks, fig):
+    for i in range(1, num_stacks + 1):
+        fig.update_layout(
+            {
+                f"xaxis{i}": {
+                    "showticklabels": False,
+                    "showgrid": False,
+                    "zeroline": False,
+                    "ticks": "",
+                    "scaleanchor": f"y{i}",  # Enforce square scaling for each subplot
+                    "constrain": "domain",  # Ensures no extra padding
+                },
+                f"yaxis{i}": {
+                    "showticklabels": False,
+                    "showgrid": False,
+                    "zeroline": False,
+                    "ticks": "",
+                    "constrain": "domain",  # Ensures no extra padding
+                },
+            }
+        )
+
+
+def set_animation_layout(num_frames, COLORMAP, fig):
     fig.update_layout(
         height=300,
         width=1200,
@@ -1458,92 +1578,6 @@ def plot_images(start: CxoTimeLike, stop: CxoTimeLike) -> str:  # noqa: PLR0915 
         ],
     )
 
-    # Hide axis tick labels, grids, and zero lines for all subplots
-    for i in range(1, num_stacks + 1):
-        fig.update_layout(
-            {
-                f"xaxis{i}": {
-                    "showticklabels": False,
-                    "showgrid": False,
-                    "zeroline": False,
-                    "ticks": "",
-                    "scaleanchor": f"y{i}",  # Enforce square scaling for each subplot
-                    "constrain": "domain",  # Ensures no extra padding
-                },
-                f"yaxis{i}": {
-                    "showticklabels": False,
-                    "showgrid": False,
-                    "zeroline": False,
-                    "ticks": "",
-                    "constrain": "domain",  # Ensures no extra padding
-                },
-            }
-        )
-
-
-    # Adjust the y-position of the labels
-    label_y_position = -0.4  # Move closer to the images
-
-    # Create frames for the animation
-    frames = []
-    for frame_idx in range(num_frames):
-        frame_data = [
-            go.Heatmap(
-                z=stack[frame_idx],
-                colorscale=COLORMAP,
-                showscale=False,  # Shared colorbar
-                zmin=0,
-                zmax=255,
-            )
-            for stack in image_stacks
-        ]
-
-        # Centered labels: use calculated subplot centers
-        new_titles = []
-        for i in range(num_stacks):
-            if imagesizes[i][frame_idx] == 6:
-                new_titles.append(f"bgdavg: {bgdavgs[i][frame_idx]:.0f}")
-            else:
-                new_titles.append(f"outermin: {outer_mins[i][frame_idx]:.0f}")
-
-        annotations = [
-            {
-                "x": 0,
-                "y": label_y_position,  # Adjusted position closer to images
-                "xref": "x domain" if stack_idx == 0 else f"x{stack_idx + 1} domain",
-                "yref": "y domain" if stack_idx == 0 else f"y{stack_idx + 1} domain",
-                "text": new_titles[stack_idx],
-                "showarrow": False,
-                "font": {"size": 12},
-                "align": "left",  # Center-align text
-            }
-            for stack_idx in range(num_stacks)
-        ]
-        frames.append(
-            go.Frame(
-                data=frame_data,
-                name=f"frame_{frame_idx}",
-                layout=go.Layout(
-                    title=f"Date: {CxoTime(times[frame_idx]).date}",
-                    annotations=annotations,
-                ),
-            )
-        )
-
-    # Add frames to the figure
-    fig.frames = frames
-
-    # fig.show()
-    # filename = "images_{}.html".format(CxoTime(start).date)
-    html = fig.to_html(
-        full_html=False,
-        include_plotlyjs="cdn",
-        config={"displayModeBar": True},
-        auto_play=False,
-    )
-
-    return html
-
 
 def make_summary_reports(bgd_events, outdir="."):
     """
@@ -1615,13 +1649,13 @@ def make_summary_reports(bgd_events, outdir="."):
         events_by_pitch_html = plot_events_pitch(dwell_events)
         events_by_delay_html = plot_events_delay(dwell_events)
         events_rel_perigee_html = plot_events_rel_perigee(bgd_events)
-        #events_max_bgd_html = plot_events_max_bgd(dwell_events)
+        # events_max_bgd_html = plot_events_max_bgd(dwell_events)
     else:
         events_top_html = ""
         events_by_pitch_html = ""
         events_by_delay_html = ""
         events_rel_perigee_html = ""
-        #events_max_bgd_html = ""
+        # events_max_bgd_html = ""
 
     dwell_events = sorted(dwell_events, key=lambda i: i["dwell_datestart"])
     dwell_events = dwell_events[::-1]
@@ -1697,9 +1731,6 @@ def plot_events_top(dwell_events):
 
 
 def plot_events_rel_perigee(bgd_events: Table) -> str:
-
-    from kadi.commands import get_cmds
-    import astropy.units as u
     frac_year = [CxoTime(d["dwell_datestart"]).frac_year for d in bgd_events]
 
     dtimes_perigee = []
@@ -1765,7 +1796,10 @@ def plot_events_delay(dwell_events: list) -> str:
 
     # Get the delay values and the dates
     # For each event, the "delay" is the time between the dwell start and the first event start
-    delays = [CxoTime(d['first_event_start']).secs - CxoTime(d['dwell_datestart']).secs for d in dwell_events]
+    delays = [
+        CxoTime(d["first_event_start"]).secs - CxoTime(d["dwell_datestart"]).secs
+        for d in dwell_events
+    ]
     frac_year = [CxoTime(d["dwell_datestart"]).frac_year for d in dwell_events]
     hovertext = [f"obs{d['obsid']}" for d in dwell_events]
 
