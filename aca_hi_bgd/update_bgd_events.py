@@ -2,6 +2,7 @@ import argparse
 import collections
 from collections.abc import Callable
 from pathlib import Path
+import functools
 
 import agasc
 import astropy.units as u
@@ -71,8 +72,40 @@ def get_opt():
     )
     return parser
 
+@functools.cache
+def get_hi_bgd_notes(data_root) -> Table:
+    """
+    Get the high background notes from the Google Sheet.
 
-def get_false_positives() -> Table:
+    Parameters
+    ----------
+    data_root : str
+        The root directory for the data
+    Returns
+    -------
+    dat : astropy.table.Table
+        Table of notes and false positives
+    """
+    LOGGER.info(f"Reading google sheet {GSHEET_URL}")
+    dat = None
+    try:
+        dat = Table.read(GSHEET_URL, format="ascii.csv")
+    except Exception as e:
+        LOGGER.error(f"Failed to read {GSHEET_URL} with error: {e}")
+
+    if dat is not None:
+        dat.write(
+            Path(data_root) / "hi_bgd_notes.csv",
+            format="ascii.csv",
+            overwrite=True,
+        )
+    else:
+        dat = Table.read(Path(data_root) / "hi_bgd_notes.csv", format="ascii.csv")
+
+    return dat
+
+
+def get_false_positives(data_root) -> Table:
     """
     Get the known false positives from the Google Sheet.
 
@@ -87,13 +120,12 @@ def get_false_positives() -> Table:
     dat : astropy.table.Table
         Table of false positives
     """
-    LOGGER.info(f"Reading known false positives {GSHEET_URL}")
-    dat = Table.read(GSHEET_URL, format="ascii.csv")
+    dat = get_hi_bgd_notes(data_root)
     ok = dat["type"] == "false positive"
     return dat[ok]
 
 
-def get_extra_notes() -> Table:
+def get_extra_notes(data_root) -> Table:
     """
     Get any extra notes from the Google Sheet.
 
@@ -108,8 +140,7 @@ def get_extra_notes() -> Table:
     dat : astropy.table.Table
         Table of notes if any
     """
-    LOGGER.info(f"Reading notes from {GSHEET_URL}")
-    dat = Table.read(GSHEET_URL, format="ascii.csv")
+    dat = get_hi_bgd_notes(data_root)
     ok = dat["type"] == "note"
     return dat[ok]
 
@@ -412,7 +443,7 @@ def get_manvr_extra_data(start: CxoTimeLike, stop: CxoTimeLike) -> dict:
 
 
 def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
-    start: CxoTimeLike, stop: CxoTimeLike = None, outdir: Path = "."
+    start: CxoTimeLike, stop: CxoTimeLike = None, outdir: Path = ".", data_root: Path = ".",
 ) -> tuple:
     """
     Get high background events in a time range.
@@ -450,7 +481,7 @@ def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
     dwell_starts = [d["dwell"] for d in dwell_metrics]
     time_last_processed = None
 
-    bads = get_false_positives()
+    bads = get_false_positives(data_root)
 
     for manvr in manvrs:
         try:
@@ -612,6 +643,27 @@ def get_background_data_and_thresh(
     default_six_threshold: float = None,
     default_eight_threshold: float = None,
 ) -> dict:
+    """
+    Get the corrected background data and thresholds for a given slot.
+
+    Parameters
+    ----------
+    slot_data : astropy.table.Table
+        Table of slot data with columns "TIME", "IMGFUNC", "IMGSIZE", "IMG_BGSUB"
+        and "BGDAVG"
+    mag : float
+        The magnitude of the star
+    default_six_threshold : float
+        Default threshold for 6x6 data
+    default_eight_threshold : float
+        Default threshold for 8x8 data
+
+    Returns
+    -------
+    bgds : dict
+        Dictionary of background data and thresholds with keys "bgdavg_es", "outer_min_7",
+        "outer_min_7_magsub", "threshold", "bgd"
+    """
     if default_six_threshold is None:
         default_six_threshold = SIX_THRESHOLD
 
@@ -875,7 +927,7 @@ def make_dwell_report(
     events = []
     for index, e in enumerate(events_limit_5):
         event = dict(zip(e.colnames, e.as_void(), strict=False))
-        event["img_html"] = plot_images(event["tstart"] - 10, event["tstart"] + 100)
+        event["img_html"] = plot_images(event["tstart"], event["tstop"])
         event["index"] = index
         events.append(event)
 
@@ -1004,6 +1056,8 @@ def plot_dwell(  # noqa: PLR0912, PLR0915 too many statements, too many branches
         "#7f7f7f",
     ]
 
+    # Make a figure with 2 or 3 plots for the overall background data for the dwell
+    # and the kalman star count.
     if has_6x6:
         fig = make_subplots(
             rows=1,
@@ -1023,19 +1077,24 @@ def plot_dwell(  # noqa: PLR0912, PLR0915 too many statements, too many branches
 
     # use a fixed number of bins to speed up the plotting if there are a lot of data points
     num_bins = 2000
+
+    # For the corrected outer min, use this as the ymax
     ymax_outermin = 500
 
+    # Add the background traces to the first 1 or 2 plots.
     add_slot_background_traces(
         fig, start, slot_mag, slots_data, has_6x6, colors, num_bins, ymax_outermin
     )
 
     # Add the range of the events to the first two plots as a shaded region
-    add_event_shade_regions(fig, start, events, has_6x6)
+    add_event_shade_regions(fig, start, events, has_6x6, ymax_outermin)
 
+    # Add aokalstr data to plot
     add_aokalstr_trace(fig, start, stop, has_6x6, num_bins)
 
     fig.update_xaxes(matches="x")  # Define the layout
 
+    # Finish up by labeling the plots and setting the ranges
     if has_6x6:
         fig.update_layout(
             xaxis_title="Obs Time (ks)",
@@ -1089,6 +1148,27 @@ def plot_dwell(  # noqa: PLR0912, PLR0915 too many statements, too many branches
 
 
 def add_aokalstr_trace(fig, start, stop, has_6x6, num_bins):
+    """
+    Add the AOKALSTR data to the plot.
+
+    Parameters
+    ----------
+    fig : plotly.graph_objects.Figure
+        The figure to add the trace to.
+    start : CxoTimeLike
+        Start time of the dwell.
+    stop : CxoTimeLike
+        Stop time of the dwell.
+    has_6x6 : bool
+        Whether the slot has mostly 6x6 data.
+    num_bins : int
+        Number of bins to use for the data.
+
+    Returns
+    -------
+    None
+        The function modifies the figure in place.
+    """
     aokalstr = fetch.Msid("AOKALSTR", CxoTime(start).secs, CxoTime(stop).secs)
     values = np.array(aokalstr.vals).astype(int)
     dtimes = (aokalstr.times - aokalstr.times[0]) / 1000.0
@@ -1106,46 +1186,77 @@ def add_aokalstr_trace(fig, start, stop, has_6x6, num_bins):
     )
 
 
-def add_event_shade_regions(fig, start, events, has_6x6):
+def add_event_shade_regions(fig, start, events, has_6x6, max_y):
+    """
+    Add event shaded regions to the background trace plots.
+
+    Parameters
+    ----------
+    fig : plotly.graph_objects.Figure
+        The figure to add the shaded regions to.
+    start : CxoTimeLike
+        Start time of the dwell.
+    events : astropy.table.Table
+        Table of events to be plotted.
+    has_6x6 : bool
+        Whether the slot has mostly 6x6 data.
+
+    Returns
+    -------
+    None
+        The function modifies the figure in place.
+
+    """
     for i, event in enumerate(events):
-        # Add a shaded region for the event
+
+        # Add a rectangle to the plot for each event
         fig.add_shape(
             type="rect",
-            xref="x2" if has_6x6 else "x",
-            yref="paper",
             x0=(event["tstart"] - CxoTime(start).secs) / 1000.0,
-            x1=(event["tstop"] - CxoTime(start).secs) / 1000.0,
             y0=0,
-            y1=1,
+            x1=(event["tstop"] - CxoTime(start).secs) / 1000.0,
+            y1=max_y,
             fillcolor="LightSalmon",
             opacity=0.5,
-            layer="below",
             line_width=0,
-        )
-
-        label = f"Start: {CxoTime(event['tstart']).date}<br>Stop: {CxoTime(event['tstop']).date}<br>event {i}"  # noqa: E501
-        # Add an invisible scatter trace for the hover-over tooltip
-        fig.add_trace(
-            go.Scatter(
-                x=[
-                    (event["tstart"] - CxoTime(start).secs) / 1000.0,
-                    (event["tstop"] - CxoTime(start).secs) / 1000.0,
-                ],
-                y=[0, 1],
-                mode="lines",
-                line={"width": 0},
-                fill="toself",
-                fillcolor="rgba(0,0,0,0)",
-                hoverinfo="text",
-                hovertext=label,
-                showlegend=False,
-            )
+            showlegend=False,
+            row=1,
+            col=2 if has_6x6 else 1,
         )
 
 
 def add_slot_background_traces(
     fig, start, slot_mag, slots_data, has_6x6, colors, num_bins, ymax_outermin=500
 ):
+    """
+    Add the background traces to the plot.
+
+    Parameters
+    ----------
+    fig : plotly.graph_objects.Figure
+        The figure to add the traces to.
+    start : CxoTimeLike
+        Start time of the dwell.
+    slot_mag : dict
+        Dictionary of slot magnitudes keyed by slot.
+    slots_data : dict
+        Dictionary of slot data tables with keys 0-7 and tables with columns
+        "TIME", "IMGFUNC", "IMGSIZE", "outer_min_7_magsub", "bgdavg_es", "threshold".
+    has_6x6 : bool
+        Whether the slot has mostly 6x6 data.
+    colors : list
+        List of colors for the traces.
+    num_bins : int
+        Number of bins to use for the data.
+    ymax_outermin : int
+        Maximum value for the outer minimum plot.
+
+    Returns
+    -------
+    None
+        The function modifies the figure in place.
+
+    """
     for slot in range(8):
         slot_data = slots_data[slot]
 
@@ -1348,8 +1459,12 @@ def plot_images(start: CxoTimeLike, stop: CxoTimeLike) -> str:  # noqa: PLR0915 
         HTML representation of the animated plot.
 
     """
-    start = CxoTime(start)
-    stop = CxoTime(stop)
+    start = CxoTime(start) - 10 * u.s
+    stop = CxoTime(stop) + 10 * u.s
+
+    # if stop - start > 300 seconds, clip it
+    if (stop - start).to(u.s).value > 300:
+        stop = start + 300 * u.s
 
     times, image_stacks, bgdavgs, outer_mins, imagesizes = get_images_for_plot(
         start, stop
@@ -1385,7 +1500,7 @@ def plot_images(start: CxoTimeLike, stop: CxoTimeLike) -> str:  # noqa: PLR0915 
     set_animation_layout(num_frames, COLORMAP, fig)
 
     # Hide axis tick labels, grids, and zero lines for all subplots
-    customize_animation_layout_axes(num_stacks, fig)
+    customize_animation_layout_axes(fig, num_stacks)
 
     # Adjust the y-position of the labels
     label_y_position = -0.4  # Move closer to the images
@@ -1429,6 +1544,35 @@ def make_animation_frames(
     COLORMAP,
     label_y_position,
 ):
+    """
+    Create frames for the animation.
+
+    Parameters
+    ----------
+    times : numpy.ndarray
+        Array of times for the frames.
+    image_stacks : list
+        List of image stacks for each slot.
+    bgdavgs : dict
+        Dictionary with slot numbers as keys and lists of background averages.
+    outer_mins : dict
+        Dictionary with slot numbers as keys and lists of outer minimum values.
+    imagesizes : dict
+        Dictionary with slot numbers as keys and lists of image sizes.
+    num_stacks : int
+        Number of stacks (slots).
+    num_frames : int
+        Number of frames in the animation.
+    COLORMAP : str
+        Color map for the heatmap.
+    label_y_position : float
+        Y-position for the labels in the animation.
+
+    Returns
+    -------
+    list
+        List of frames for the animation.
+    """
     frames = []
     for frame_idx in range(num_frames):
         frame_data = [
@@ -1477,7 +1621,24 @@ def make_animation_frames(
     return frames
 
 
-def customize_animation_layout_axes(num_stacks, fig):
+def customize_animation_layout_axes(fig, num_stacks):
+    """
+    Customize the layout of the animation axes.
+
+    Parameters
+    ----------
+    fig : plotly.graph_objects.Figure
+        The figure to customize.
+    num_stacks : int
+        Number of stacks (subplots).
+
+    Returns
+    -------
+    None
+        The function modifies the figure in place.
+
+
+    """
     for i in range(1, num_stacks + 1):
         fig.update_layout(
             {
@@ -1579,7 +1740,7 @@ def set_animation_layout(num_frames, COLORMAP, fig):
     )
 
 
-def make_summary_reports(bgd_events, outdir="."):
+def make_summary_reports(bgd_events, outdir=".", data_root="."):
     """
     Make event reports
 
@@ -1600,7 +1761,7 @@ def make_summary_reports(bgd_events, outdir="."):
     Path(outdir).mkdir(parents=True, exist_ok=True)
 
     # Get notes
-    extra_notes = get_extra_notes()
+    extra_notes = get_extra_notes(data_root)
 
     dwell_events = []
     for dwell_start in np.unique(bgd_events["dwell_datestart"]):
@@ -1649,13 +1810,13 @@ def make_summary_reports(bgd_events, outdir="."):
         events_by_pitch_html = plot_events_pitch(dwell_events)
         events_by_delay_html = plot_events_delay(dwell_events)
         events_rel_perigee_html = plot_events_rel_perigee(bgd_events)
-        # events_max_bgd_html = plot_events_max_bgd(dwell_events)
+        #events_manvr_html = plot_events_manvr(bgd_events)
     else:
         events_top_html = ""
         events_by_pitch_html = ""
         events_by_delay_html = ""
         events_rel_perigee_html = ""
-        # events_max_bgd_html = ""
+        #events_manvr_html = ""
 
     dwell_events = sorted(dwell_events, key=lambda i: i["dwell_datestart"])
     dwell_events = dwell_events[::-1]
@@ -1673,6 +1834,46 @@ def make_summary_reports(bgd_events, outdir="."):
     f = open(Path(outdir) / "index.html", "w")
     f.write(page)
     f.close()
+
+
+def plot_events_manvr(bgd_events):
+    fig = go.Figure()
+
+    from kadi import events
+    # refetch the maneuver angles for now
+    man_angles = []
+    frac_years = []
+    hovertext = []
+    for d in bgd_events:
+        manvrs = events.manvrs.filter(kalman_start__exact=d["dwell_datestart"])
+        if len(manvrs) > 0:
+            man_angles.append(manvrs[0].angle)
+            frac_years.append(CxoTime(d["dwell_datestart"]).frac_year)
+            hovertext.append(f"obs{d['obsid']:05d}")
+        else:
+            continue
+
+    fig.add_trace(
+        go.Scatter(
+            x=frac_years,
+            y=man_angles,
+            hoverinfo="text",
+            hovertext=hovertext,
+            mode="markers",
+        )
+    )
+    fig.update_layout(
+        yaxis_title="Maneuver angle (deg)",
+        height=400,
+        width=600,
+    )
+    return fig.to_html(
+        full_html=False,
+        include_plotlyjs="cdn",
+        config={"displayModeBar": True},
+    )
+
+
 
 
 def plot_events_top(dwell_events):
@@ -1759,14 +1960,17 @@ def plot_events_rel_perigee(bgd_events: Table) -> str:
             x=frac_year,
             y=dtimes_perigee,
             mode="markers",
+            hoverinfo="text",
+            hovertext=[
+                f"obs{d['obsid']:05d}" for d in bgd_events],
         )
     )
     fig.update_layout(
         title="Event start time relative to perigee",
-        xaxis_title="Time",
-        yaxis_title="Time (s)",
+        yaxis_title="event time - perigee (s)",
         height=400,
         width=600,
+        yaxis={"range": [-150000, 150000]},
     )
     return fig.to_html(
         full_html=False,
@@ -1815,8 +2019,7 @@ def plot_events_delay(dwell_events: list) -> str:
 
     fig.update_layout(
         title="Event start time relative to dwell start",
-        xaxis_title="Time",
-        yaxis_title="Delay (s)",
+        yaxis_title="event start - dwell start (s)",
         height=400,
         width=600,
     )
@@ -1846,7 +2049,7 @@ def plot_events_pitch(dwell_events: list) -> str:
     # Get the pitch values and the dates
     pitches = [d["pitch"] for d in dwell_events]
     frac_year = [CxoTime(d["dwell_datestart"]).frac_year for d in dwell_events]
-    hovertext = [f"{d['obsid']}" for d in dwell_events]
+    hovertext = [f"obs{d['obsid']:05d}" for d in dwell_events]
 
     fig.add_trace(
         go.Scatter(
@@ -1860,7 +2063,6 @@ def plot_events_pitch(dwell_events: list) -> str:
 
     fig.update_layout(
         title="Pitch of ACA HI BGD events over time",
-        xaxis_title="Time",
         yaxis_title="Pitch",
         height=400,
         width=600,
@@ -1918,11 +2120,11 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
         bgd_events = Table.read(EVENT_ARCHIVE, format="ascii.ecsv")
     if len(bgd_events) > 0:
         start = CxoTime(bgd_events["dwell_datestart"][-1])
-        # Remove any bogus events from the real list
+        # Remove any bogus events from the list
         bgd_events = bgd_events[bgd_events["obsid"] != -1]
 
-        bads = get_false_positives()
-        # Remove any known bad events from the real list too
+        bads = get_false_positives(opt.data_root)
+        # Remove any known bad events from the list
         for bad_datestart in bads["dwell_datestart"]:
             bgd_events = bgd_events[bgd_events["dwell_datestart"] != bad_datestart]
 
@@ -1950,7 +2152,7 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
                 redo=True,
             )
         ok = significant_events(bgd_events)
-        make_summary_reports(bgd_events[ok], outdir=opt.web_out)
+        make_summary_reports(bgd_events[ok], outdir=opt.web_out, data_root=opt.data_root)
         return
 
     # If the user has asked for a start time earlier than the end of the
@@ -1965,7 +2167,8 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
     if start is None:
         start = CxoTime(-7)
 
-    new_events, last_proc_time = get_events(start, stop=opt.stop, outdir=opt.web_out)
+    new_events, last_proc_time = get_events(start, stop=opt.stop,
+                                            outdir=opt.web_out, data_root=opt.data_root)
 
     if len(new_events) > 0:
         new_events = Table(new_events)
