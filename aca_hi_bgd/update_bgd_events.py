@@ -924,24 +924,25 @@ def make_dwell_report(
     events_limit_5 = obs_events[:5].copy()
     events_limit_5.sort("tstart")
 
-    events = []
+    top_events = []
     for index, e in enumerate(events_limit_5):
         event = dict(zip(e.colnames, e.as_void(), strict=False))
         event["img_html"] = plot_images(event["tstart"], event["tstop"])
         event["index"] = index
-        events.append(event)
+        top_events.append(event)
 
     # Make a plot of the full dwell
-    bgd_html = plot_dwell(dwell_start, dwell_stop, dwell_start, events)
+    bgd_html = plot_dwell(dwell_start, dwell_stop, dwell_start, top_events=top_events,
+                          all_events=obs_events)
 
     LOGGER.info(f"Making report for {outdir}")
     file_dir = Path(__file__).parent
     obs_template = Template(open(file_dir / "per_obs_template.html", "r").read())
     page = obs_template.render(
-        dwell_datestart=events[0]["dwell_datestart"],
-        dwell_datestop=events[0]["dwell_datestop"],
+        dwell_datestart=top_events[0]["dwell_datestart"],
+        dwell_datestop=top_events[0]["dwell_datestop"],
         obsid=obsid,
-        events=events,
+        events=top_events,
         bgd_html=bgd_html,
         DETECT_HITS=DETECT_HITS,
         DETECT_WINDOW=DETECT_WINDOW,
@@ -1003,7 +1004,9 @@ def rebin_data(
 
 
 def plot_dwell(  # noqa: PLR0912, PLR0915 too many statements, too many branches
-    start: CxoTimeLike, stop: CxoTimeLike, dwell_start: CxoTimeLike, events: Table
+    start: CxoTimeLike, stop: CxoTimeLike, dwell_start: CxoTimeLike,
+    top_events: Table,
+    all_events: Table,
 ) -> str:
     """
     Generate a plotly plot of backgrounds data and aokalstr over an event.
@@ -1083,11 +1086,12 @@ def plot_dwell(  # noqa: PLR0912, PLR0915 too many statements, too many branches
 
     # Add the background traces to the first 1 or 2 plots.
     add_slot_background_traces(
-        fig, start, slot_mag, slots_data, has_6x6, colors, num_bins, ymax_outermin
+        fig, start, slot_mag, slots_data, has_6x6, colors, num_bins, ymax_outermin,
     )
 
     # Add the range of the events to the first two plots as a shaded region
-    add_event_shade_regions(fig, start, events, has_6x6, ymax_outermin)
+    add_event_shade_regions(fig, "grey", start, all_events, has_6x6, ymax_outermin)
+    add_event_shade_regions(fig, "red", start, top_events, has_6x6, ymax_outermin)
 
     # Add aokalstr data to plot
     add_aokalstr_trace(fig, start, stop, has_6x6, num_bins)
@@ -1186,7 +1190,7 @@ def add_aokalstr_trace(fig, start, stop, has_6x6, num_bins):
     )
 
 
-def add_event_shade_regions(fig, start, events, has_6x6, max_y):
+def add_event_shade_regions(fig, color, start, events, has_6x6, max_y):
     """
     Add event shaded regions to the background trace plots.
 
@@ -1216,17 +1220,16 @@ def add_event_shade_regions(fig, start, events, has_6x6, max_y):
             y0=0,
             x1=(event["tstop"] - CxoTime(start).secs) / 1000.0,
             y1=max_y,
-            fillcolor="LightSalmon",
+            fillcolor=color,
             opacity=0.5,
             line_width=0,
-            showlegend=False,
             row=1,
             col=2 if has_6x6 else 1,
         )
 
 
 def add_slot_background_traces(
-    fig, start, slot_mag, slots_data, has_6x6, colors, num_bins, ymax_outermin=500
+    fig, start, slot_mag, slots_data, has_6x6, colors, num_bins, ymax_outermin=500,
 ):
     """
     Add the background traces to the plot.
