@@ -241,7 +241,7 @@ def get_raw_events(
     return events
 
 
-def combine_events(events: list, tol: float = 30) -> list:
+def combine_events(events: list, tol: float = 90) -> list:
     """
     Combine overlapping event intervals.
 
