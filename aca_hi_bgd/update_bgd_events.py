@@ -1211,7 +1211,7 @@ def add_event_shade_regions(fig, color, start, events, has_6x6, max_y):
         The function modifies the figure in place.
 
     """
-    for i, event in enumerate(events):
+    for event in events:
 
         # Add a rectangle to the plot for each event
         fig.add_shape(
