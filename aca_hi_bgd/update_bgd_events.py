@@ -72,6 +72,7 @@ def get_opt():
     )
     return parser
 
+
 @functools.cache
 def get_hi_bgd_notes(data_root) -> Table:
     """
@@ -443,7 +444,10 @@ def get_manvr_extra_data(start: CxoTimeLike, stop: CxoTimeLike) -> dict:
 
 
 def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
-    start: CxoTimeLike, stop: CxoTimeLike = None, outdir: Path = ".", data_root: Path = ".",
+    start: CxoTimeLike,
+    stop: CxoTimeLike = None,
+    outdir: Path = ".",
+    data_root: Path = ".",
 ) -> tuple:
     """
     Get high background events in a time range.
@@ -932,8 +936,13 @@ def make_dwell_report(
         top_events.append(event)
 
     # Make a plot of the full dwell
-    bgd_html = plot_dwell(dwell_start, dwell_stop, dwell_start, top_events=top_events,
-                          all_events=obs_events)
+    bgd_html = plot_dwell(
+        dwell_start,
+        dwell_stop,
+        dwell_start,
+        top_events=top_events,
+        all_events=obs_events,
+    )
 
     LOGGER.info(f"Making report for {outdir}")
     file_dir = Path(__file__).parent
@@ -1004,7 +1013,9 @@ def rebin_data(
 
 
 def plot_dwell(  # noqa: PLR0912, PLR0915 too many statements, too many branches
-    start: CxoTimeLike, stop: CxoTimeLike, dwell_start: CxoTimeLike,
+    start: CxoTimeLike,
+    stop: CxoTimeLike,
+    dwell_start: CxoTimeLike,
     top_events: Table,
     all_events: Table,
 ) -> str:
@@ -1086,7 +1097,14 @@ def plot_dwell(  # noqa: PLR0912, PLR0915 too many statements, too many branches
 
     # Add the background traces to the first 1 or 2 plots.
     add_slot_background_traces(
-        fig, start, slot_mag, slots_data, has_6x6, colors, num_bins, ymax_outermin,
+        fig,
+        start,
+        slot_mag,
+        slots_data,
+        has_6x6,
+        colors,
+        num_bins,
+        ymax_outermin,
     )
 
     # Add the range of the events to the first two plots as a shaded region
@@ -1212,7 +1230,6 @@ def add_event_shade_regions(fig, color, start, events, has_6x6, max_y):
 
     """
     for event in events:
-
         # Add a rectangle to the plot for each event
         fig.add_shape(
             type="rect",
@@ -1229,7 +1246,14 @@ def add_event_shade_regions(fig, color, start, events, has_6x6, max_y):
 
 
 def add_slot_background_traces(
-    fig, start, slot_mag, slots_data, has_6x6, colors, num_bins, ymax_outermin=500,
+    fig,
+    start,
+    slot_mag,
+    slots_data,
+    has_6x6,
+    colors,
+    num_bins,
+    ymax_outermin=500,
 ):
     """
     Add the background traces to the plot.
@@ -1813,13 +1837,13 @@ def make_summary_reports(bgd_events, outdir=".", data_root="."):
         events_by_pitch_html = plot_events_pitch(dwell_events)
         events_by_delay_html = plot_events_delay(dwell_events)
         events_rel_perigee_html = plot_events_rel_perigee(bgd_events)
-        #events_manvr_html = plot_events_manvr(bgd_events)
+        # events_manvr_html = plot_events_manvr(bgd_events)
     else:
         events_top_html = ""
         events_by_pitch_html = ""
         events_by_delay_html = ""
         events_rel_perigee_html = ""
-        #events_manvr_html = ""
+        # events_manvr_html = ""
 
     dwell_events = sorted(dwell_events, key=lambda i: i["dwell_datestart"])
     dwell_events = dwell_events[::-1]
@@ -1843,6 +1867,7 @@ def plot_events_manvr(bgd_events):
     fig = go.Figure()
 
     from kadi import events
+
     # refetch the maneuver angles for now
     man_angles = []
     frac_years = []
@@ -1875,8 +1900,6 @@ def plot_events_manvr(bgd_events):
         include_plotlyjs="cdn",
         config={"displayModeBar": True},
     )
-
-
 
 
 def plot_events_top(dwell_events):
@@ -1964,8 +1987,7 @@ def plot_events_rel_perigee(bgd_events: Table) -> str:
             y=dtimes_perigee,
             mode="markers",
             hoverinfo="text",
-            hovertext=[
-                f"obs{d['obsid']:05d}" for d in bgd_events],
+            hovertext=[f"obs{d['obsid']:05d}" for d in bgd_events],
         )
     )
     fig.update_layout(
@@ -2155,7 +2177,9 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
                 redo=True,
             )
         ok = significant_events(bgd_events)
-        make_summary_reports(bgd_events[ok], outdir=opt.web_out, data_root=opt.data_root)
+        make_summary_reports(
+            bgd_events[ok], outdir=opt.web_out, data_root=opt.data_root
+        )
         return
 
     # If the user has asked for a start time earlier than the end of the
@@ -2170,8 +2194,9 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
     if start is None:
         start = CxoTime(-7)
 
-    new_events, last_proc_time = get_events(start, stop=opt.stop,
-                                            outdir=opt.web_out, data_root=opt.data_root)
+    new_events, last_proc_time = get_events(
+        start, stop=opt.stop, outdir=opt.web_out, data_root=opt.data_root
+    )
 
     if len(new_events) > 0:
         new_events = Table(new_events)
