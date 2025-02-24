@@ -32,8 +32,8 @@ DETECT_WINDOW = 21  # seconds
 SIX_THRESHOLD = 580  # applied to BGDAVG scaled to e-/s
 EIGHT_THRESHOLD = 140  # applied to 8th outer min scaled to e-/s
 
-DOC_ID = "1qhF7tYA4tD3cugsqrtS2jsGe7OSPpIs8jnU4v0f6NCE"
-GID = 0
+DOC_ID = "1GoYBTIQAv0qq2vh3jYxHBYHfEq2I8LVGMiScDX7OFvw"
+GID = 524798125
 url_start = "https://docs.google.com/spreadsheets/d"
 GSHEET_URL = f"{url_start}/{DOC_ID}/export?format=csv&id={DOC_ID}&gid={GID}"
 GSHEET_USER_URL = f"{url_start}/{DOC_ID}/edit?usp=sharing"
