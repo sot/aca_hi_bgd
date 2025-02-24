@@ -63,14 +63,19 @@
                 with black arrows.
                 <br></br>
 
-                In the background plots, detected high background events are marked with pink background rectangles,
-                over the duration of the event.  An event is defined as the period of time when the background
+                In the background plots, the top five high background events are marked with red background rectangles.
+                The top events are selected by the maximum background values.  Other
+                events beyond the top 5 are marked with grey rectangles.
+                An event is defined as the period of time when the background
                 is above the threshold ({{SIX_THRESHOLD}} e-/s for BGDAVG and {{EIGHT_THRESHOLD}} e-/s for
                 the corrected 8th outer min) for {{DETECT_HITS}} image samples within {{DETECT_WINDOW}}s.
+                Events within 90 seconds are combined into single events (and may have values below the threshold).
+                The top 5 events are the same events used for the pixel data plots below.
                 <br></br>
 
-                For the background plots, to reduce plot size and loading time, the plots are binned by time.
-                For each bin, the maximum value in the bin is plotted.
+                For these full-dwell plots, to reduce plot size and loading time, the plots are
+                binned by time. For the background plots, the maximum value in the bin is plotted.
+                For the AOKALSTR plot, the minimum value in the bin is plotted.
             </div>
         </div>
     </div>
