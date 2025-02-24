@@ -1,8 +1,8 @@
 import argparse
 import collections
+import functools
 from collections.abc import Callable
 from pathlib import Path
-import functools
 
 import agasc
 import astropy.units as u
