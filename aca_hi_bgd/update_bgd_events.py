@@ -2176,7 +2176,6 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
                 / f"dwell_{dwell_start}",
                 redo=True,
             )
-        ok = significant_events(bgd_events)
         make_summary_reports(
             bgd_events[ok], outdir=opt.web_out, data_root=opt.data_root
         )
