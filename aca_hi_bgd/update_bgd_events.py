@@ -2104,7 +2104,9 @@ def significant_events(bg_events: Table) -> np.array:
     Filter out events that are not significant.
 
     This function filters out events that have obsid == 0 or obsid == -1, and
-    have either less than n_slots or less than slot_seconds.
+    have 5 more more impacted slots or greater than or equal to 60 "slot seconds".
+    Dwells with notes are also included in the full list even if they don't
+    exceed those thresholds.
 
     Parameters
     ----------
@@ -2117,10 +2119,12 @@ def significant_events(bg_events: Table) -> np.array:
         Boolean array of significant events
     """
     # Filter not null obsid, and either >= n_slots  or >= than duration seconds
+    # or notes not an empty or whitespace string
+    bg_notes = np.array([note.strip() for note in bg_events["notes"]])
     ok = ~np.in1d(bg_events["obsid"], [0, -1]) & (
         (bg_events["n_slots"] >= 5)
         | (bg_events["slot_seconds"] >= 60)
-        | (bg_events["notes"] != "")
+        | (bg_notes != "")
     )
     return ok
 
