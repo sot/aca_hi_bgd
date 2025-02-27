@@ -20,7 +20,7 @@ setup(
     use_scm_version=True,
     setup_requires=["setuptools_scm", "setuptools_scm_git_archive"],
     zip_safe=False,
-    packages=["aca_hi_bgd", "aca_hi_bgd.tests"],
+    packages=["aca_hi_bgd"],
     package_data={
         "aca_hi_bgd": [
             "top_level_template.html",
