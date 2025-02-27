@@ -50,7 +50,7 @@ def get_opt():
     parser.add_argument("--stop", help="Stop date")
     parser.add_argument(
         "--data-root",
-        default="/proj/sot/ska/data/aca_hi_bgd_mon_dev",
+        default="./data",
         help="Output data directory",
     )
     parser.add_argument(
@@ -59,10 +59,11 @@ def get_opt():
         help="Replot known events",
     )
     parser.add_argument(
-        "--web-out", default="/proj/sot/ska/www/ASPECT/aca_hi_bgd_mon_dev/"
+        "--web-out",
+        default="./webout",
     )
     parser.add_argument(
-        "--web-url", default="https://cxc.harvard.edu/mta/ASPECT/aca_hi_bgd_mon_dev"
+        "--web-url", default="https://cxc.harvard.edu/mta/ASPECT/aca_hi_bgd_mon"
     )
     parser.add_argument(
         "--email",
