@@ -1254,6 +1254,11 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
         LOGGER.warning("No new or old events - Bailing out")
         return
 
+    # Mark the significant events in the table as "has_report"
+    ok = significant_events(bgd_events)
+    bgd_events["has_report"] = False
+    bgd_events["has_report"][ok] = True
+
     bgd_events.sort("datestart")
 
     # Add a null event at the end
@@ -1263,8 +1268,7 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
 
     bgd_events.write(EVENT_ARCHIVE, format="ascii.ecsv", overwrite=True)
 
-    # Filter *all* of the events again to make the summary report
-    ok = significant_events(bgd_events)
+    # Make summary reports of the significant ones.
     make_summary_reports(bgd_events[ok], outdir=opt.web_out)
 
 
