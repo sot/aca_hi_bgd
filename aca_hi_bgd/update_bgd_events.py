@@ -1254,17 +1254,18 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
         LOGGER.warning("No new or old events - Bailing out")
         return
 
-    # Mark the significant events in the table as "has_report"
-    ok = significant_events(bgd_events)
-    bgd_events["has_report"] = False
-    bgd_events["has_report"][ok] = True
-
+    # Sort the table by date
     bgd_events.sort("datestart")
 
     # Add a null event at the end
     bgd_events.add_row()
     bgd_events[-1]["obsid"] = -1
     bgd_events[-1]["dwell_datestart"] = CxoTime(last_proc_time).date
+
+    # Mark the significant events in the table as "has_report"
+    ok = significant_events(bgd_events)
+    bgd_events["has_report"] = False
+    bgd_events["has_report"][ok] = True
 
     bgd_events.write(EVENT_ARCHIVE, format="ascii.ecsv", overwrite=True)
 
