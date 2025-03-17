@@ -1,60 +1,134 @@
 <HTML>
 <HEADER>
-<style type="text/css">
-img { image-rendering: pixelated }
-</style>
+    <html>
+        <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
+            rel="stylesheet"
+            integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3"
+            crossorigin="anonymous">
 
+            <style>
+                h1 {
+                    color: #990000;
+                }
+
+                h2 {
+                    color: #990000;
+                }
+                .content-container {
+                    margin-left: 5px; /* Adjust the value as needed */
+                }
+            </style>
+  <title>ACA High Background Monitor</title>
 
 </HEADER>
 <BODY>
-<H1>High background events in obsid {{ obsid }}</H1>
 
-<H2>Summary of background events with bgdavg plots</H2>
-Each entry in the table is a link to a section on the page with slot images.
+<div class="container-md content-container">
+
+<A href="../../../index.html">Back to top index</A>
+<BR></BR>
+
+
+<H2>High background events in dwell {{dwell_datestart}} obsid {{ obsid }}</H2>
+
+<H3>Full Dwell Plots</H3>
+
+<div class="accordion" id="accordionExampleOne">
+    <div class="accordion-item">
+        <h4 class="accordion-header" id="heading-one">
+            <button class="accordion-button collapsed bg-primary bg-opacity-25" type="button" data-bs-toggle="collapse"
+                data-bs-target="#info-one" aria-expanded="true" aria-controls="info-one">
+                Key to Dwell Plots
+            </button>
+        </h4>
+        <div id="info-one" class="accordion-collapse collapse" aria-labelledby="info-one"
+            data-bs-parent="#accordionExampleOne">
+            <div class="accordion-body bg-primary bg-opacity-10">
+                The plots below show the background behavior in each image slot
+                and the overall kalman star count in the OBC during the dwell.  For observations
+                with 6x6 image data, a plot is included (BGDAVG) of the telemetered image background avg.
+                For observations with 8x8 image data, a plot is included (corr background 8th outer min)
+                which includes an estimate of the per-image background level taken from the edge pixels.
+                For that metric, for each image, the edge pixels used in the dynamic background
+                (edge pixels + the corners of the 6x6) are sorted and the 8th lowest value is used.
+                A small correction value is also subtracted for images with very bright stars.
+                The corrected 8th outer min is just called "outermin" in the pixel image plot lower on the page
+                if present.
+                <br></br>
+
+                In the plot, any Y values beyond the max of the Y axis are clipped to the max value and plotted
+                with black arrows.
+                <br></br>
+
+                In the background plots, the top five high background events are marked with red background rectangles.
+                The top events are selected by the maximum background values.  Other
+                events beyond the top 5 are marked with grey rectangles.
+                An event is defined as the period of time when the background
+                is above the threshold ({{SIX_THRESHOLD}} e-/s for BGDAVG and {{EIGHT_THRESHOLD}} e-/s for
+                the corrected 8th outer min) for {{DETECT_HITS}} image samples within {{DETECT_WINDOW}}s.
+                Events within 90 seconds are combined into single events (and may have values below the threshold).
+                The top 5 events are the same events used for the pixel data plots below.
+                <br></br>
+
+                For these full-dwell plots, to reduce plot size and loading time, the plots are
+                binned by time. For the background plots, the maximum value in the bin is plotted.
+                For the AOKALSTR plot, the minimum value in the bin is plotted.
+            </div>
+        </div>
+    </div>
+</div>
+
 <TABLE border=1>
-{% for event in events %}
-<TABLE border=1>
-<tr>
-<td><A HREF="#{{ event['index']}}"><img src={{ event['bgdplot'] }}></A></td>
-<td><TABLE border=1>
-<tr><td>start of bgdavg > 100</td><td>{{event['event_datestart']}}</td></tr>
-<tr><td>duration</td><td>{{event['duration']}}</td></tr>
-<tr><td>slot_seconds</td><td>{{event['slot_seconds']}}</td></tr>
-</TABLE></td>
-</tr>
+<tr><td>{{ bgd_html }}</td></tr>
 </TABLE>
-{% endfor %}
-</TABLE>
+
+<H3>aca_view for full dwell</H3>
+
+aca_view --start {{dwell_datestart}} --stop {{dwell_datestop}}
+<BR></BR>
+
+<H3>Pixel Data for up to 5 events in the dwell</H3>
+<div class="accordion" id="accordionExampleTwo">
+    <div class="accordion-item">
+        <h4 class="accordion-header" id="heading-two">
+            <button class="accordion-button collapsed bg-primary bg-opacity-25" type="button" data-bs-toggle="collapse"
+                data-bs-target="#info-two" aria-expanded="true" aria-controls="info-two">
+                More details on pixel data
+            </button>
+        </h4>
+        <div id="info-two" class="accordion-collapse collapse" aria-labelledby="info-two"
+            data-bs-parent="#accordionExampleTwo">
+            <div class="accordion-body bg-primary bg-opacity-10">
+                The animation below shows the pixel data for up to 5 events in the dwell.  The images are intended
+                to show display from 10 seconds before to 10 seconds after the event.  If the event is more than
+                300 seconds long, the animation will be truncated.
+            </div>
+        </div>
+    </div>
+</div>
 
 {% for event in events %}
 <HR></HR>
-<A id="{{ event['index'] }}"</A>
-<h3>Event {{event['index']}} starting at {{event['event_datestart']}}</h3>
+<h4>Event {{event['index']}} starting at {{event['datestart']}}</h4>
 <TABLE border=1>
-<tr>
-<td><TABLE border=1>
-<tr><td>start of bgdavg > 100</td><td>{{event['event_tstart']}}</td></tr>
-<tr><td>duration</td><td>{{event['duration']}}</td></tr>
-<tr><td>slot_seconds</td><td>{{event['slot_seconds']}}</td></tr>
-</TABLE>
-</td>
-<td><img src={{ event['bgdplot'] }}></td>
-<td><img src={{ event['aokalstr'] }}></td>
-</tr>
-</TABLE>
+    <tr><td>aca_view --start {{event['datestart']}} --stop {{event['datestop']}}</td></tr>
+    <tr><td>event start {{event['datestart']}} duration {{ '%.1f'|format(event['duration'])}}s</td></tr>
+    </TABLE>
+<br></br>
 <TABLE border=1>
-{% for row in event['imgrows'] %}
-<tr><td>{{ row['rowsecs'] }}<br />{{ row['rowdate'] }}</td>
-<td colspan="8"><img src="{{ row['img'] }}" width=864 height=96></td></tr>
-<tr><td>BGDAVG</td>
-{% for slot in row['slots'] %}
-<td width="100px">{{ slot.bgdavg }}</td>
-{%- endfor %}
-</tr>
-{%- endfor %}
+{{ event['img_html']}}
 </TABLE>
 {%- endfor %}
 
 
+</div>
+<script
+src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"
+integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p"
+crossorigin="anonymous">
+</script>
 </BODY>
 </HTML>
