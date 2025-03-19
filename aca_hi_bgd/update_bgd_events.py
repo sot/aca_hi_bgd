@@ -759,7 +759,7 @@ def get_slot_mags(time: CxoTimeLike) -> dict:
         guide_cat[guide_cat["mag"] == -999.00] = 15
 
     # Initialize the slot magnitudes to 15 (faint enough to not have impact)
-    slot_mag = {slot: 15 for slot in range(8)}
+    slot_mag = dict.fromkeys(range(8), 15)
     for slot in range(8):
         if len(guide_cat) == 0:
             continue
