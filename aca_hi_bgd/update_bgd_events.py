@@ -759,7 +759,7 @@ def get_slot_mags(time: CxoTimeLike) -> dict:
         guide_cat[guide_cat["mag"] == -999.00] = 15
 
     # Initialize the slot magnitudes to 15 (faint enough to not have impact)
-    slot_mag = {slot: 15 for slot in range(8)}
+    slot_mag = dict.fromkeys(range(8), 15)
     for slot in range(8):
         if len(guide_cat) == 0:
             continue
@@ -1236,12 +1236,17 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
                 outdir=event_outdir,
             )
             LOGGER.warning(f"HI BGD event in obsid {obsid} {url}")
-            if len(opt.emails) > 0:
+
+            # Add another filter on the data for the emails to only include
+            # events with more than 200 slot seconds.
+            if np.any(obs_events["slot_seconds"] > 200) and len(opt.emails) > 0:
                 send_mail(
                     LOGGER,
                     opt,
                     f"ACA HI BGD event in obsid {obsid}",
-                    f"HI BGD in obsid {obsid} report at {url}",
+                    f"HI BGD in obsid {obsid} report at {url} with "
+                    f"max duration {np.max(obs_events['duration']):.1f}"
+                    f" and max slot seconds {np.max(obs_events['slot_seconds']):.1f}",
                     __file__,
                 )
 
