@@ -532,16 +532,14 @@ def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
         if np.any(aopcadmd.vals != "NPNT"):
             stop = aopcadmd.times[np.where(aopcadmd.vals != "NPNT")[0][0]]
 
-        # try:
         dwell_events, dwell_end_time, slot_metrics = get_manvr_events(
             start, stop, obsid
         )
 
-        # except IndexError:
-        #    LOGGER.info(f"Skipping dwell {d} obsid {d.get_obsid()} no data")
-        #    continue
-        if dwell_end_time is not None:
-            time_last_processed = dwell_end_time
+        if dwell_end_time is None:
+            continue
+
+        time_last_processed = dwell_end_time
 
         # Assemble a row of data for the dwell metrics
         dwell_metric = {"dwell": start, "obsid": obsid}
@@ -555,12 +553,6 @@ def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
             Table(dwell_metrics).write(
                 Path(outdir) / "dwell_metrics.csv", overwrite=True
             )
-
-            # year = int(CxoTime(start).frac_year)
-            # event_outdir = (
-            #    Path(outdir) / "events" / f"{year}" / f"dwell_{manvr.kalman_start}"
-            # )
-            # make_event_report(start, stop, obsid, dwell_events, event_outdir)
             if len(bgd_events) > 0:
                 bgd_events = vstack([Table(bgd_events), dwell_events])
             else:
@@ -866,7 +858,7 @@ def get_manvr_events(start: CxoTimeLike, stop: CxoTimeLike, obsid: int) -> tuple
     if (len(slots_data[3]) == 0) or (
         CxoTime(stop).secs - slots_data[3]["TIME"][-1]
     ) > 60:
-        LOGGER.info(f"Stopping review of dwells at dwell {start}, missing image data")
+        LOGGER.info(f"Cannot process dwell {start}, missing image data")
         return [], None, {}
 
     raw_events = get_raw_events(slots_data)
