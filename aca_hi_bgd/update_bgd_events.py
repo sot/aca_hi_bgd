@@ -834,9 +834,21 @@ def get_manvr_events(start: CxoTimeLike, stop: CxoTimeLike, obsid: int) -> tuple
             Dictionary of metrics for each slot
 
     """
+    start = CxoTime(start)
+    stop = CxoTime(stop)
+
     slot_mag = get_slot_mags(start)
 
     bgd_events = []
+
+    # First, just check for available tccd telemetry
+    _, aacccdpt_stop = fetch.get_time_range("AACCCDPT")
+    aacccdpt_stop = CxoTime(aacccdpt_stop)
+    if aacccdpt_stop < stop:
+        LOGGER.info(
+            f"Skipping dwell {start} to {stop} because no CXC TCCD data after {aacccdpt_stop.date}"
+        )
+        return [], None, {}
 
     try:
         sd_table = get_aca_images(start, stop, source="cxc", bgsub=True)
