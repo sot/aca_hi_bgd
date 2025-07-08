@@ -1267,6 +1267,9 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
     bgd_events.sort("datestart")
 
     # Add a null event at the end
+    # If we didn't actually process any dwells, re-use the start time
+    if last_proc_time is None:
+        last_proc_time = start
     bgd_events.add_row()
     bgd_events[-1]["obsid"] = -1
     bgd_events[-1]["dwell_datestart"] = CxoTime(last_proc_time).date
