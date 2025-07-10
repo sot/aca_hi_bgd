@@ -4,10 +4,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 import agasc
+import astropy.units as u
 import numpy as np
 from acdc.common import send_mail
 from astropy.table import Table, vstack
-import astropy.units as u
 from chandra_aca.aca_image import get_aca_images
 from chandra_aca.transform import mag_to_count_rate
 from cheta import fetch
@@ -15,10 +15,10 @@ from cxotime import CxoTime, CxoTimeLike
 from jinja2 import Template
 from kadi import events
 from kadi.commands import get_starcats
-from ska_helpers.retry import retry_call
-from maude.config import conf as maude_conf
 from maude import get_last_backorbit_date
+from maude.config import conf as maude_conf
 from ska_helpers.logging import basic_logger
+from ska_helpers.retry import retry_call
 from ska_helpers.run_info import log_run_info
 from ska_numpy import interpolate
 
