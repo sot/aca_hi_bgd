@@ -549,7 +549,10 @@ def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
             stop = aopcadmd.times[np.where(aopcadmd.vals != "NPNT")[0][0]]
 
         dwell_events, dwell_end_time, slot_metrics = get_manvr_events(
-            start, stop, obsid, data_source=data_source,
+            start,
+            stop,
+            obsid,
+            data_source=data_source,
         )
 
         if dwell_end_time is None:
@@ -826,8 +829,9 @@ def get_slots_metrics(slots_data: dict) -> dict:
     return slots_metrics
 
 
-def get_manvr_events(start: CxoTimeLike, stop: CxoTimeLike, obsid: int,
-                     data_source="cxc") -> tuple:
+def get_manvr_events(
+    start: CxoTimeLike, stop: CxoTimeLike, obsid: int, data_source="cxc"
+) -> tuple:
     """
     Review a single dwell for high background events.
 
@@ -877,9 +881,7 @@ def get_manvr_events(start: CxoTimeLike, stop: CxoTimeLike, obsid: int,
 
     # Check that the image data is complete for the dwell.
     # This assumes that it is sufficient to check slot 3
-    if (len(slots_data[3]) == 0) or (
-        stop.secs - slots_data[3]["TIME"][-1]
-    ) > 60:
+    if (len(slots_data[3]) == 0) or (stop.secs - slots_data[3]["TIME"][-1]) > 60:
         LOGGER.info(f"Cannot process dwell {start}, missing image data")
         return [], None, {}
 
@@ -1229,7 +1231,9 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
         # get the end of backorbit data from maude.  Put a retry around this
         # in case the maude server is down.
         with maude_conf.set_temp("timeout", 5):
-            last_telem_date = retry_call(get_last_backorbit_date, [["AACCCDPT", "AOIMAGE0"]], tries=5, delay=5)
+            last_telem_date = retry_call(
+                get_last_backorbit_date, [["AACCCDPT", "AOIMAGE0"]], tries=5, delay=5
+            )
         last_telem_date = CxoTime(last_telem_date)
     else:
         # Just check for available cxc tccd telemetry
@@ -1240,7 +1244,10 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
 
     with maude_conf.set_temp("timeout", 5):
         new_events, last_proc_time = get_events(
-            start, stop=stop, outdir=opt.web_out, data_root=opt.data_root,
+            start,
+            stop=stop,
+            outdir=opt.web_out,
+            data_root=opt.data_root,
             data_source=data_source,
         )
 
