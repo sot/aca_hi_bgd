@@ -7,6 +7,7 @@ import agasc
 import numpy as np
 from acdc.common import send_mail
 from astropy.table import Table, vstack
+import astropy.units as u
 from chandra_aca.aca_image import get_aca_images
 from chandra_aca.transform import mag_to_count_rate
 from cheta import fetch
@@ -14,6 +15,9 @@ from cxotime import CxoTime, CxoTimeLike
 from jinja2 import Template
 from kadi import events
 from kadi.commands import get_starcats
+from ska_helpers.retry import retry_call
+from maude.config import conf as maude_conf
+from maude import get_last_backorbit_date
 from ska_helpers.logging import basic_logger
 from ska_helpers.run_info import log_run_info
 from ska_numpy import interpolate
@@ -70,7 +74,12 @@ def get_opt():
         action="append",
         dest="emails",
         default=[],
-        help="Email address for notificaion",
+        help="Email address for notification",
+    )
+    parser.add_argument(
+        "--maude",
+        action="store_true",
+        help="Use maude data source instead of cxc",
     )
     return parser
 
@@ -450,6 +459,7 @@ def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
     stop: CxoTimeLike = None,
     outdir: Path = ".",
     data_root: Path = ".",
+    data_source: str = "cxc",
 ) -> tuple:
     """
     Get high background events in a time range.
@@ -463,6 +473,12 @@ def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
         Start of Kalman for the maneuvers to check
     stop : str
         Stop of Kalman for the maneuvers to check
+    outdir : Path
+        Output directory for dwell metrics
+    data_root : Path
+        Root directory for data files
+    data_source : str
+        Data source to use, either "cxc" or "maude"
 
     Returns
     -------
@@ -475,7 +491,7 @@ def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
     stop = CxoTime(stop)
     LOGGER.info(f"Processing with start: {start} and stop: {stop}")
     manvrs = events.manvrs.filter(
-        kalman_start__gte=start.date, kalman_start__lte=stop.date, n_dwell__gt=0
+        kalman_start__gte=start.date, next_nman_start__lte=stop.date, n_dwell__gt=0
     )
     LOGGER.info(f"Found {len(manvrs)} maneuvers to process")
 
@@ -533,7 +549,7 @@ def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
             stop = aopcadmd.times[np.where(aopcadmd.vals != "NPNT")[0][0]]
 
         dwell_events, dwell_end_time, slot_metrics = get_manvr_events(
-            start, stop, obsid
+            start, stop, obsid, data_source=data_source,
         )
 
         if dwell_end_time is None:
@@ -810,7 +826,8 @@ def get_slots_metrics(slots_data: dict) -> dict:
     return slots_metrics
 
 
-def get_manvr_events(start: CxoTimeLike, stop: CxoTimeLike, obsid: int) -> tuple:
+def get_manvr_events(start: CxoTimeLike, stop: CxoTimeLike, obsid: int,
+                     data_source="cxc") -> tuple:
     """
     Review a single dwell for high background events.
 
@@ -822,6 +839,8 @@ def get_manvr_events(start: CxoTimeLike, stop: CxoTimeLike, obsid: int) -> tuple
         End of interval to process
     obsid : int
         Observation ID
+    data_source : str
+        Data source to use, either "cxc" or "maude"
 
     Returns
     -------
@@ -841,17 +860,8 @@ def get_manvr_events(start: CxoTimeLike, stop: CxoTimeLike, obsid: int) -> tuple
 
     bgd_events = []
 
-    # First, just check for available tccd telemetry
-    _, aacccdpt_stop = fetch.get_time_range("AACCCDPT")
-    aacccdpt_stop = CxoTime(aacccdpt_stop)
-    if aacccdpt_stop < stop:
-        LOGGER.info(
-            f"Skipping dwell {start} to {stop} because no CXC TCCD data after {aacccdpt_stop.date}"
-        )
-        return [], None, {}
-
     try:
-        sd_table = get_aca_images(start, stop, source="cxc", bgsub=True)
+        sd_table = get_aca_images(start, stop, source=data_source, bgsub=True)
     except Exception:
         LOGGER.info(f"Failed to get image data for dwell {start}")
         return [], None, {}
@@ -868,7 +878,7 @@ def get_manvr_events(start: CxoTimeLike, stop: CxoTimeLike, obsid: int) -> tuple
     # Check that the image data is complete for the dwell.
     # This assumes that it is sufficient to check slot 3
     if (len(slots_data[3]) == 0) or (
-        CxoTime(stop).secs - slots_data[3]["TIME"][-1]
+        stop.secs - slots_data[3]["TIME"][-1]
     ) > 60:
         LOGGER.info(f"Cannot process dwell {start}, missing image data")
         return [], None, {}
@@ -879,8 +889,8 @@ def get_manvr_events(start: CxoTimeLike, stop: CxoTimeLike, obsid: int) -> tuple
 
     for event in merged_events:
         event["obsid"] = obsid
-        event["dwell_datestart"] = start
-        event["dwell_datestop"] = CxoTime(stop).date
+        event["dwell_datestart"] = start.date
+        event["dwell_datestop"] = stop.date
         event["datestart"] = CxoTime(event["tstart"]).date
         stats = get_event_stats(event, slots_data)
         for key in stats:
@@ -1155,6 +1165,8 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
     opt = get_opt().parse_args(args)
     log_run_info(LOGGER.info, opt, version=__version__)
 
+    data_source = "cxc" if not opt.maude else "maude"
+
     EVENT_ARCHIVE = Path(opt.data_root) / "bgd_events.dat"
     Path(opt.data_root).mkdir(parents=True, exist_ok=True)
     start = None
@@ -1210,11 +1222,27 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
             ]
         start = CxoTime(opt.start)
     if start is None:
-        start = CxoTime(-7)
+        start = CxoTime.now() - 7 * u.day
 
-    new_events, last_proc_time = get_events(
-        start, stop=opt.stop, outdir=opt.web_out, data_root=opt.data_root
-    )
+    # Figure out what range of data we can actually process
+    if opt.maude is True:
+        # get the end of backorbit data from maude.  Put a retry around this
+        # in case the maude server is down.
+        with maude_conf.set_temp("timeout", 5):
+            last_telem_date = retry_call(get_last_backorbit_date, [["AACCCDPT", "AOIMAGE0"]], tries=5, delay=5)
+        last_telem_date = CxoTime(last_telem_date)
+    else:
+        # Just check for available cxc tccd telemetry
+        _, aacccdpt_stop = fetch.get_time_range("AACCCDPT")
+        last_telem_date = CxoTime(aacccdpt_stop)
+
+    stop = min([CxoTime(opt.stop), last_telem_date])
+
+    with maude_conf.set_temp("timeout", 5):
+        new_events, last_proc_time = get_events(
+            start, stop=stop, outdir=opt.web_out, data_root=opt.data_root,
+            data_source=data_source,
+        )
 
     if len(new_events) > 0:
         new_events = Table(new_events)
