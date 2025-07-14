@@ -1174,8 +1174,6 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
     opt = get_opt().parse_args(args)
     log_run_info(LOGGER.info, opt, version=__version__)
 
-    data_source = "cxc" if not opt.maude else "maude"
-
     EVENT_ARCHIVE = Path(opt.data_root) / "bgd_events.dat"
     Path(opt.data_root).mkdir(parents=True, exist_ok=True)
     start = None
@@ -1236,7 +1234,7 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
     # Figure out what range of data we can actually process
     if opt.maude is True:
         # get the end of backorbit data from maude.  Put a retry around this
-        # in case the maude server is down.
+        # in case of intermittent failures.
         with maude_conf.set_temp("timeout", 5):
             last_telem_date = retry_call(
                 get_last_backorbit_date, [["AACCCDPT", "AOIMAGE0"]], tries=5, delay=5
@@ -1255,7 +1253,7 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
             stop=stop,
             outdir=opt.web_out,
             data_root=opt.data_root,
-            data_source=data_source,
+            data_source="cxc" if not opt.maude else "maude",
         )
 
     if len(new_events) > 0:
