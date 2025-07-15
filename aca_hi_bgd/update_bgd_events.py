@@ -421,7 +421,7 @@ def get_manvr_extra_data(start: CxoTimeLike, stop: CxoTimeLike) -> dict:
     # pitch_comp will just work (needs orbitephem not available to just maude source)
     # For the high background monitor we could go back and use AOSARES1 if we
     # wanted to exclude the cxc eng archive, but that seems not needed
-    with fetch.data_source.set("cxc", "maude allow_subset=False"):
+    with fetch.data_source("cxc", "maude allow_subset=False"):
         pitchs = fetch.Msid("pitch_comp", start, stop)
         if len(pitchs.vals) > 0:
             pitch = np.median(pitchs.vals)
@@ -1252,7 +1252,7 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
 
     stop = min([CxoTime(opt.stop), last_telem_date])
 
-    with fetch.data_source.set("cxc" if not opt.maude else "maude allow_subset=False"):
+    with fetch.data_source("cxc" if not opt.maude else "maude allow_subset=False"):
         with maude_conf.set_temp("timeout", 5):
             new_events, last_proc_time = get_events(
                 start,
