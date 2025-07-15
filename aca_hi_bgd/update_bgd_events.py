@@ -45,7 +45,6 @@ GSHEET_USER_URL = f"{url_start}/{DOC_ID}/edit?usp=sharing"
 
 
 LOGGER = basic_logger(__name__, level="INFO")
-fetch.data_source.set("cxc", "maude allow_subset=False")
 
 
 def get_opt():
@@ -79,7 +78,8 @@ def get_opt():
     parser.add_argument(
         "--maude",
         action="store_true",
-        help="Use maude data source instead of cxc",
+        help="Use maude data source instead of cxc"
+        "(cxc still used for orbitephem for pitch_comp)",
     )
     return parser
 
@@ -417,11 +417,16 @@ def get_manvr_extra_data(start: CxoTimeLike, stop: CxoTimeLike) -> dict:
         Dictionary of extra data for the dwell including "pitch" and "notes"
     """
 
-    pitchs = fetch.Msid("DP_PITCH", start, stop)
-    if len(pitchs.vals) > 0:
-        pitch = np.median(pitchs.vals)
-    else:
-        pitch = -999
+    # Explicitly set the fetch data source to the composite cxc/maude set, so that
+    # pitch_comp will just work (needs orbitephem not available to just maude source)
+    # For the high background monitor we could go back and use AOSARES1 if we
+    # wanted to exclude the cxc eng archive, but that seems not needed
+    with fetch.data_source.set("cxc", "maude allow_subset=False"):
+        pitchs = fetch.Msid("pitch_comp", start, stop)
+        if len(pitchs.vals) > 0:
+            pitch = np.median(pitchs.vals)
+        else:
+            pitch = -999
 
     expected_acqs = 0
     guide_cat = get_guide_cat(start)
@@ -1247,14 +1252,15 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
 
     stop = min([CxoTime(opt.stop), last_telem_date])
 
-    with maude_conf.set_temp("timeout", 5):
-        new_events, last_proc_time = get_events(
-            start,
-            stop=stop,
-            outdir=opt.web_out,
-            data_root=opt.data_root,
-            data_source="cxc" if not opt.maude else "maude",
-        )
+    with fetch.data_source.set("cxc" if not opt.maude else "maude allow_subset=False"):
+        with maude_conf.set_temp("timeout", 5):
+            new_events, last_proc_time = get_events(
+                start,
+                stop=stop,
+                outdir=opt.web_out,
+                data_root=opt.data_root,
+                data_source="cxc" if not opt.maude else "maude",
+            )
 
     if len(new_events) > 0:
         new_events = Table(new_events)
