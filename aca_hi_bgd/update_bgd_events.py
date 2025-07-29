@@ -1234,9 +1234,7 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
         # get the end of backorbit data from maude.  Put a retry around this
         # in case of intermittent failures.
         with maude_conf.set_temp("timeout", 5):
-            last_telem_date = retry_call(
-                get_last_backorbit_date, [["AACCCDPT", "AOIMAGE0"]], tries=5, delay=5
-            )
+            last_telem_date = retry_call(get_last_backorbit_date, tries=5, delay=5)
         last_telem_date = CxoTime(last_telem_date)
     else:
         # Just check for available cxc tccd telemetry
