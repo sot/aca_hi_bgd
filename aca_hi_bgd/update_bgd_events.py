@@ -176,7 +176,7 @@ def exceeds_threshold(slot_data: Table) -> np.ndarray:
     """
     ok = (
         (slot_data["IMGFUNC"] == 1)
-        & (slot_data["IMGSIZE"] != 4)
+        & ((slot_data["IMGSIZE"] == 6) | (slot_data["IMGSIZE"] == 8))
         & (slot_data["AAPIXTLM"] == "ORIG")
     )
     hits = np.zeros(len(slot_data), dtype=bool)
@@ -357,7 +357,7 @@ def get_event_stats(event: dict, slots_data: dict) -> dict:
 
     count_ok = (
         (event_data["IMGFUNC"] == 1)
-        & (event_data["IMGSIZE"] != 4)
+        & ((event_data["IMGSIZE"] == 6) | (event_data["IMGSIZE"] == 8))
         & (event_data["AAPIXTLM"] == "ORIG")
         & (event_data["bgd"] > event_data["threshold"])
     )
@@ -874,13 +874,6 @@ def get_manvr_events(
     except Exception:
         LOGGER.info(f"Failed to get image data for dwell {start}")
         return [], None, {}
-
-    # If there is no IMGSIZE column, let's just add one
-    # IMGTYPE 4 -> 8x8, 1 -> 6x6, 0 -> 4x4
-    if "IMGSIZE" not in sd_table.colnames:
-        sd_table["IMGSIZE"] = np.zeros(len(sd_table), dtype=int)
-        for itype, size in zip([4, 1, 0], [8, 6, 4], strict=True):
-            sd_table["IMGSIZE"][sd_table["IMGTYPE"] == itype] = size
 
     slots_data = {slot: sd_table[sd_table["IMGNUM"] == slot] for slot in range(8)}
     for slot, s_data in slots_data.items():
