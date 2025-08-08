@@ -1230,18 +1230,16 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
         start = CxoTime.now() - 7 * u.day
 
     # Figure out what range of data we can actually process
-    if opt.maude is True:
+    if opt.maude:
         # get the end of backorbit data from maude.  Put a retry around this
         # in case of intermittent failures.
         with maude_conf.set_temp("timeout", 5):
             last_telem_date = retry_call(get_last_backorbit_date, tries=5, delay=5)
-        last_telem_date = CxoTime(last_telem_date)
     else:
         # Just check for available cxc tccd telemetry
-        _, aacccdpt_stop = fetch.get_time_range("AACCCDPT")
-        last_telem_date = CxoTime(aacccdpt_stop)
+        _, last_telem_date = fetch.get_time_range("AACCCDPT")
 
-    stop = min([CxoTime(opt.stop), last_telem_date])
+    stop = min(CxoTime(opt.stop).date, last_telem_date)
 
     with fetch.data_source("cxc" if not opt.maude else "maude allow_subset=False"):
         with maude_conf.set_temp("timeout", 5):
