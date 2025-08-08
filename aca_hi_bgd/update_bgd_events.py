@@ -78,8 +78,7 @@ def get_opt():
     parser.add_argument(
         "--maude",
         action="store_true",
-        help="Use maude data source instead of cxc"
-        "(cxc still used for orbitephem for pitch_comp)",
+        help="Use maude data source instead of cxc",
     )
     return parser
 
@@ -417,16 +416,11 @@ def get_manvr_extra_data(start: CxoTimeLike, stop: CxoTimeLike) -> dict:
         Dictionary of extra data for the dwell including "pitch" and "notes"
     """
 
-    # Explicitly set the fetch data source to the composite cxc/maude set, so that
-    # pitch_comp will just work (needs orbitephem not available to just maude source)
-    # For the high background monitor we could go back and use AOSARES1 if we
-    # wanted to exclude the cxc eng archive, but that seems not needed
-    with fetch.data_source("cxc", "maude allow_subset=False"):
-        pitchs = fetch.Msid("pitch_comp", start, stop)
-        if len(pitchs.vals) > 0:
-            pitch = np.median(pitchs.vals)
-        else:
-            pitch = -999
+    pitchs = fetch.Msid("AOSARES1", start, stop)
+    if len(pitchs.vals) > 0:
+        pitch = np.median(pitchs.vals)
+    else:
+        pitch = -999
 
     expected_acqs = 0
     guide_cat = get_guide_cat(start)
