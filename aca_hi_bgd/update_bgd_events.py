@@ -547,7 +547,7 @@ def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
         if np.any(aopcadmd.vals != "NPNT"):
             stop = aopcadmd.times[np.where(aopcadmd.vals != "NPNT")[0][0]]
 
-        dwell_events, dwell_end_time, slot_metrics = get_manvr_events(
+        dwell_events, dwell_end_time, slot_metrics = get_bgd_events_for_manvr(
             start,
             stop,
             obsid,
@@ -828,7 +828,7 @@ def get_slots_metrics(slots_data: dict) -> dict:
     return slots_metrics
 
 
-def get_manvr_events(
+def get_bgd_events_for_manvr(
     start: CxoTimeLike, stop: CxoTimeLike, obsid: int, data_source="cxc"
 ) -> tuple:
     """
