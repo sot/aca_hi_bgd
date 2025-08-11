@@ -879,8 +879,12 @@ def get_bgd_events_for_manvr(
     slots_metrics = get_slots_metrics(slots_data)
 
     # Check that the image data is complete for the dwell.
-    # This assumes that it is sufficient to check slot 3
-    if (len(slots_data[3]) == 0) or (stop.secs - slots_data[3]["TIME"][-1]) > 60:
+    # This checks that there are images and that they don't end more than 60 seconds
+    # before the dwell itself ends.
+    if all(
+        len(slots_data[ii]) == 0 or (stop.secs - slots_data[ii]["TIME"][-1]) > 60
+        for ii in range(3, 8)
+    ):
         LOGGER.info(f"Cannot process dwell {start}, missing image data")
         return [], None, {}
 
