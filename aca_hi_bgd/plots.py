@@ -907,7 +907,7 @@ def plot_events_top(dwell_events):
         go.Bar(x=x, y=hist, name="Events", hovertext=hovertext, hoverinfo="text")
     )
     fig.update_layout(
-        title="Number of ACA HI BGD events per year",
+        title="Number of ACA HI BGD events per year\n(these are one year bins relative to now)",
         yaxis_title="Number of events",
         height=400,
         width=600,

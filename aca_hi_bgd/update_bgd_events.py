@@ -4,6 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import agasc
+import astropy.units as u
 import numpy as np
 from acdc.common import send_mail
 from astropy.table import Table, vstack
@@ -14,7 +15,10 @@ from cxotime import CxoTime, CxoTimeLike
 from jinja2 import Template
 from kadi import events
 from kadi.commands import get_starcats
+from maude import get_last_backorbit_date
+from maude.config import conf as maude_conf
 from ska_helpers.logging import basic_logger
+from ska_helpers.retry import retry_call
 from ska_helpers.run_info import log_run_info
 from ska_numpy import interpolate
 
@@ -41,7 +45,6 @@ GSHEET_USER_URL = f"{url_start}/{DOC_ID}/edit?usp=sharing"
 
 
 LOGGER = basic_logger(__name__, level="INFO")
-fetch.data_source.set("cxc", "maude allow_subset=False")
 
 
 def get_opt():
@@ -70,7 +73,12 @@ def get_opt():
         action="append",
         dest="emails",
         default=[],
-        help="Email address for notificaion",
+        help="Email address for notification",
+    )
+    parser.add_argument(
+        "--maude",
+        action="store_true",
+        help="Use maude data source instead of cxc",
     )
     return parser
 
@@ -167,7 +175,7 @@ def exceeds_threshold(slot_data: Table) -> np.ndarray:
     """
     ok = (
         (slot_data["IMGFUNC"] == 1)
-        & (slot_data["IMGSIZE"] != 4)
+        & ((slot_data["IMGSIZE"] == 6) | (slot_data["IMGSIZE"] == 8))
         & (slot_data["AAPIXTLM"] == "ORIG")
     )
     hits = np.zeros(len(slot_data), dtype=bool)
@@ -348,7 +356,7 @@ def get_event_stats(event: dict, slots_data: dict) -> dict:
 
     count_ok = (
         (event_data["IMGFUNC"] == 1)
-        & (event_data["IMGSIZE"] != 4)
+        & ((event_data["IMGSIZE"] == 6) | (event_data["IMGSIZE"] == 8))
         & (event_data["AAPIXTLM"] == "ORIG")
         & (event_data["bgd"] > event_data["threshold"])
     )
@@ -408,7 +416,7 @@ def get_manvr_extra_data(start: CxoTimeLike, stop: CxoTimeLike) -> dict:
         Dictionary of extra data for the dwell including "pitch" and "notes"
     """
 
-    pitchs = fetch.Msid("DP_PITCH", start, stop)
+    pitchs = fetch.Msid("AOSARES1", start, stop)
     if len(pitchs.vals) > 0:
         pitch = np.median(pitchs.vals)
     else:
@@ -450,6 +458,7 @@ def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
     stop: CxoTimeLike = None,
     outdir: Path = ".",
     data_root: Path = ".",
+    data_source: str = "cxc",
 ) -> tuple:
     """
     Get high background events in a time range.
@@ -463,6 +472,12 @@ def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
         Start of Kalman for the maneuvers to check
     stop : str
         Stop of Kalman for the maneuvers to check
+    outdir : Path
+        Output directory for dwell metrics
+    data_root : Path
+        Root directory for data files
+    data_source : str
+        Data source to use, either "cxc" or "maude"
 
     Returns
     -------
@@ -475,7 +490,7 @@ def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
     stop = CxoTime(stop)
     LOGGER.info(f"Processing with start: {start} and stop: {stop}")
     manvrs = events.manvrs.filter(
-        kalman_start__gte=start.date, kalman_start__lte=stop.date, n_dwell__gt=0
+        kalman_start__gte=start.date, next_nman_start__lte=stop.date, n_dwell__gt=0
     )
     LOGGER.info(f"Found {len(manvrs)} maneuvers to process")
 
@@ -532,8 +547,11 @@ def get_events(  # noqa: PLR0912, PLR0915 too many statements, too many branches
         if np.any(aopcadmd.vals != "NPNT"):
             stop = aopcadmd.times[np.where(aopcadmd.vals != "NPNT")[0][0]]
 
-        dwell_events, dwell_end_time, slot_metrics = get_manvr_events(
-            start, stop, obsid
+        dwell_events, dwell_end_time, slot_metrics = get_bgd_events_for_manvr(
+            start,
+            stop,
+            obsid,
+            data_source=data_source,
         )
 
         if dwell_end_time is None:
@@ -810,7 +828,9 @@ def get_slots_metrics(slots_data: dict) -> dict:
     return slots_metrics
 
 
-def get_manvr_events(start: CxoTimeLike, stop: CxoTimeLike, obsid: int) -> tuple:
+def get_bgd_events_for_manvr(
+    start: CxoTimeLike, stop: CxoTimeLike, obsid: int, data_source="cxc"
+) -> tuple:
     """
     Review a single dwell for high background events.
 
@@ -822,6 +842,8 @@ def get_manvr_events(start: CxoTimeLike, stop: CxoTimeLike, obsid: int) -> tuple
         End of interval to process
     obsid : int
         Observation ID
+    data_source : str
+        Data source to use, either "cxc" or "maude"
 
     Returns
     -------
@@ -834,12 +856,15 @@ def get_manvr_events(start: CxoTimeLike, stop: CxoTimeLike, obsid: int) -> tuple
             Dictionary of metrics for each slot
 
     """
+    start = CxoTime(start)
+    stop = CxoTime(stop)
+
     slot_mag = get_slot_mags(start)
 
     bgd_events = []
 
     try:
-        sd_table = get_aca_images(start, stop, source="cxc", bgsub=True)
+        sd_table = get_aca_images(start, stop, source=data_source, bgsub=True)
     except Exception:
         LOGGER.info(f"Failed to get image data for dwell {start}")
         return [], None, {}
@@ -854,10 +879,12 @@ def get_manvr_events(start: CxoTimeLike, stop: CxoTimeLike, obsid: int) -> tuple
     slots_metrics = get_slots_metrics(slots_data)
 
     # Check that the image data is complete for the dwell.
-    # This assumes that it is sufficient to check slot 3
-    if (len(slots_data[3]) == 0) or (
-        CxoTime(stop).secs - slots_data[3]["TIME"][-1]
-    ) > 60:
+    # This checks that there are images and that they don't end more than 60 seconds
+    # before the dwell itself ends.
+    if all(
+        len(slots_data[ii]) == 0 or (stop.secs - slots_data[ii]["TIME"][-1]) > 60
+        for ii in range(3, 8)
+    ):
         LOGGER.info(f"Cannot process dwell {start}, missing image data")
         return [], None, {}
 
@@ -867,8 +894,8 @@ def get_manvr_events(start: CxoTimeLike, stop: CxoTimeLike, obsid: int) -> tuple
 
     for event in merged_events:
         event["obsid"] = obsid
-        event["dwell_datestart"] = start
-        event["dwell_datestop"] = CxoTime(stop).date
+        event["dwell_datestart"] = start.date
+        event["dwell_datestop"] = stop.date
         event["datestart"] = CxoTime(event["tstart"]).date
         stats = get_event_stats(event, slots_data)
         for key in stats:
@@ -1198,11 +1225,29 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
             ]
         start = CxoTime(opt.start)
     if start is None:
-        start = CxoTime(-7)
+        start = CxoTime.now() - 7 * u.day
 
-    new_events, last_proc_time = get_events(
-        start, stop=opt.stop, outdir=opt.web_out, data_root=opt.data_root
-    )
+    # Figure out what range of data we can actually process
+    if opt.maude:
+        # get the end of backorbit data from maude.  Put a retry around this
+        # in case of intermittent failures.
+        with maude_conf.set_temp("timeout", 5):
+            last_telem_date = retry_call(get_last_backorbit_date, tries=5, delay=5)
+    else:
+        # Just check for available cxc tccd telemetry
+        _, last_telem_date = fetch.get_time_range("AACCCDPT")
+
+    stop = min(CxoTime(opt.stop).date, last_telem_date)
+
+    with fetch.data_source("cxc" if not opt.maude else "maude allow_subset=False"):
+        with maude_conf.set_temp("timeout", 5):
+            new_events, last_proc_time = get_events(
+                start,
+                stop=stop,
+                outdir=opt.web_out,
+                data_root=opt.data_root,
+                data_source="cxc" if not opt.maude else "maude",
+            )
 
     if len(new_events) > 0:
         new_events = Table(new_events)
@@ -1255,6 +1300,9 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
     bgd_events.sort("datestart")
 
     # Add a null event at the end
+    # If we didn't actually process any dwells, re-use the start time
+    if last_proc_time is None:
+        last_proc_time = start
     bgd_events.add_row()
     bgd_events[-1]["obsid"] = -1
     bgd_events[-1]["dwell_datestart"] = CxoTime(last_proc_time).date
