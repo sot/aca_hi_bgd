@@ -919,6 +919,7 @@ def make_dwell_report(
     obs_events: Table,
     outdir: Path = ".",
     redo: bool = True,
+    data_source: str = "cxc",
 ) -> None:
     """
     Make a report for a high background event.
@@ -937,6 +938,8 @@ def make_dwell_report(
         Output directory
     redo : bool
         Redo the report if it already exists
+    data_source : str
+        Data source to use, either "cxc" or "maude"
     """
     if not Path(outdir).exists():
         # Make the directory if it doesn't exist using Path
@@ -952,7 +955,9 @@ def make_dwell_report(
     top_events = []
     for index, e in enumerate(events_limit_5):
         event = dict(zip(e.colnames, e.as_void(), strict=False))
-        event["img_html"] = plot_images(event["tstart"], event["tstop"])
+        event["img_html"] = plot_images(
+            event["tstart"], event["tstop"], data_source=data_source
+        )
         event["index"] = index
         top_events.append(event)
 
@@ -963,6 +968,7 @@ def make_dwell_report(
         dwell_start,
         top_events=top_events,
         all_events=obs_events,
+        data_source=data_source,
     )
 
     LOGGER.info(f"Making report for {outdir}")
@@ -1209,6 +1215,7 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
                 / f"{year}"
                 / f"dwell_{dwell_start}",
                 redo=True,
+                data_source="cxc" if not opt.maude else "maude",
             )
         make_summary_reports(
             bgd_events[ok], outdir=opt.web_out, data_root=opt.data_root
@@ -1265,13 +1272,18 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
             obsid = obs_events["obsid"][0]
             url = f"{opt.web_url}/events/{year}/dwell_{dwell_start}"
 
-            make_dwell_report(
-                dwell_start,
-                obs_events["dwell_datestop"][0],
-                obsid,
-                obs_events,
-                outdir=event_outdir,
-            )
+            with fetch.data_source(
+                "cxc" if not opt.maude else "maude allow_subset=False"
+            ):
+                with maude_conf.set_temp("timeout", 5):
+                    make_dwell_report(
+                        dwell_start,
+                        obs_events["dwell_datestop"][0],
+                        obsid,
+                        obs_events,
+                        outdir=event_outdir,
+                        data_source="cxc" if not opt.maude else "maude",
+                    )
             LOGGER.warning(f"HI BGD event in obsid {obsid} {url}")
 
             # Add another filter on the data for the emails to only include

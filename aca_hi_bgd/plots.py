@@ -14,7 +14,6 @@ from plotly.subplots import make_subplots
 from ska_helpers.logging import basic_logger
 
 LOGGER = basic_logger(__name__, level="INFO")
-fetch.data_source.set("cxc", "maude allow_subset=False")
 
 
 def rebin_data(
@@ -72,6 +71,7 @@ def plot_dwell(  # noqa: PLR0912, PLR0915 too many statements, too many branches
     dwell_start: CxoTimeLike,
     top_events: Table,
     all_events: Table,
+    data_source: str = "cxc",
 ) -> str:
     """
     Generate a plotly plot of backgrounds data and aokalstr over an event.
@@ -93,6 +93,8 @@ def plot_dwell(  # noqa: PLR0912, PLR0915 too many statements, too many branches
         Start time of the dwell.
     events : Table
         Table of events to be plotted.
+    data_source : str
+        Data source to use, either "cxc" or "maude"
 
     Returns
     -------
@@ -103,7 +105,7 @@ def plot_dwell(  # noqa: PLR0912, PLR0915 too many statements, too many branches
     from aca_hi_bgd.update_bgd_events import get_slot_mags
 
     slot_mag = get_slot_mags(dwell_start)
-    sd_table = get_aca_images(start, stop, source="cxc", bgsub=True)
+    sd_table = get_aca_images(start, stop, source=data_source, bgsub=True)
     slots_data = {slot: sd_table[sd_table["IMGNUM"] == slot] for slot in range(8)}
 
     # Does the observation have 6x6 data?
@@ -435,7 +437,9 @@ def add_slot_background_traces(
         )
 
 
-def get_images_for_plot(start: CxoTimeLike, stop: CxoTimeLike) -> tuple:
+def get_images_for_plot(
+    start: CxoTimeLike, stop: CxoTimeLike, data_source: str = "cxc"
+) -> tuple:
     """
     Retrieve and process ACA images for plotting within a specified time range.
 
@@ -450,6 +454,8 @@ def get_images_for_plot(start: CxoTimeLike, stop: CxoTimeLike) -> tuple:
         Start time for the image retrieval.
     stop : CxoTimeLike
         Stop time for the image retrieval.
+    data_source : str
+        Data source to use, either "cxc" or "maude"
 
     Returns
     -------
@@ -467,7 +473,9 @@ def get_images_for_plot(start: CxoTimeLike, stop: CxoTimeLike) -> tuple:
 
     slot_mag = get_slot_mags(start.secs)
 
-    sd_table = get_aca_images(start.secs - 10, stop.secs + 10, source="cxc", bgsub=True)
+    sd_table = get_aca_images(
+        start.secs - 10, stop.secs + 10, source=data_source, bgsub=True
+    )
     slots_data = {slot: sd_table[sd_table["IMGNUM"] == slot] for slot in range(8)}
 
     for slot in range(8):
@@ -528,7 +536,7 @@ def get_images_for_plot(start: CxoTimeLike, stop: CxoTimeLike) -> tuple:
     return times, image_stacks, bgdavgs, outer_mins, imagesizes
 
 
-def plot_images(start: CxoTimeLike, stop: CxoTimeLike) -> str:  # noqa: PLR0915 Too many statements
+def plot_images(start: CxoTimeLike, stop: CxoTimeLike, data_source: str = "cxc") -> str:  # noqa: PLR0915 Too many statements
     """
     Create an animated plot of ACA images over time.
 
@@ -542,6 +550,8 @@ def plot_images(start: CxoTimeLike, stop: CxoTimeLike) -> str:  # noqa: PLR0915 
         Start time for the image retrieval.
     stop = CxoTimeLike
         Stop time for the image retrieval.
+    data_source : str
+        Data source to use, either "cxc" or "maude"
 
     Returns
     -------
@@ -557,7 +567,9 @@ def plot_images(start: CxoTimeLike, stop: CxoTimeLike) -> str:  # noqa: PLR0915 
         stop = start + 300 * u.s
 
     times, image_stacks, bgdavgs, outer_mins, imagesizes = get_images_for_plot(
-        start, stop
+        start,
+        stop,
+        data_source=data_source,
     )
 
     # Parameters
