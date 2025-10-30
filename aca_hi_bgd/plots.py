@@ -151,6 +151,10 @@ def plot_dwell(  # noqa: PLR0912, PLR0915 too many statements, too many branches
     # For the corrected outer min, use this as the ymax
     ymax_outermin = 500
 
+    # Add the range of the events to the first two plots as a shaded region
+    add_event_shade_regions(fig, "grey", start, all_events, has_6x6, ymax_outermin)
+    add_event_shade_regions(fig, "red", start, top_events, has_6x6, ymax_outermin)
+
     # Add the background traces to the first 1 or 2 plots.
     add_slot_background_traces(
         fig,
@@ -162,10 +166,6 @@ def plot_dwell(  # noqa: PLR0912, PLR0915 too many statements, too many branches
         num_bins,
         ymax_outermin,
     )
-
-    # Add the range of the events to the first two plots as a shaded region
-    add_event_shade_regions(fig, "grey", start, all_events, has_6x6, ymax_outermin)
-    add_event_shade_regions(fig, "red", start, top_events, has_6x6, ymax_outermin)
 
     # Add aokalstr data to plot
     add_aokalstr_trace(fig, start, stop, has_6x6, num_bins)
@@ -294,7 +294,7 @@ def add_event_shade_regions(fig, color, start, events, has_6x6, max_y):
             x1=(event["tstop"] - CxoTime(start).secs) / 1000.0,
             y1=max_y,
             fillcolor=color,
-            opacity=0.5,
+            opacity=0.2,
             line_width=0,
             row=1,
             col=2 if has_6x6 else 1,
