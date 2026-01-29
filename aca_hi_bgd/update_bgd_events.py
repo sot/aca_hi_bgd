@@ -1242,7 +1242,7 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
             last_telem_date = retry_call(get_last_backorbit_date, tries=5, delay=5)
     else:
         # Just check for available cxc tccd telemetry
-        _, last_telem_date = fetch.get_time_range("AACCCDPT")
+        _, last_telem_date = fetch.get_time_range("AACCCDPT", format="date")
 
     stop = min(CxoTime(opt.stop).date, last_telem_date)
 
