@@ -777,7 +777,7 @@ def get_slot_mags(time: CxoTimeLike) -> dict:
         if len(guide_slots) != 1:
             continue
         guide_slot = guide_slots[0]
-        if np.in1d(guide_slot["type"], ["BOT", "GUI"]):
+        if np.isin(guide_slot["type"], ["BOT", "GUI"]):
             # Use the full current agasc for these lookups instead of the commanded magnitude
             star = agasc.get_star(guide_slot["id"], agasc_file="agasc*")
             slot_mag[slot] = star["MAG_ACA"]
@@ -1157,7 +1157,7 @@ def significant_events(bg_events: Table) -> np.array:
     # Filter not null obsid, and either >= n_slots  or >= than duration seconds
     # or notes not an empty or whitespace string
     bg_notes = np.array([note.strip() for note in bg_events["notes"]])
-    ok = ~np.in1d(bg_events["obsid"], [0, -1]) & (
+    ok = ~np.isin(bg_events["obsid"], [0, -1]) & (
         (bg_events["n_slots"] >= 5)
         | (bg_events["slot_seconds"] >= 60)
         | (bg_notes != "")
