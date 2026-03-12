@@ -49,8 +49,16 @@ LOGGER = basic_logger(__name__, level="INFO")
 
 def get_opt():
     parser = argparse.ArgumentParser(description="High Background event finder")
-    parser.add_argument("--start", help="Start date")
-    parser.add_argument("--stop", help="Stop date")
+    parser.add_argument(
+        "--start",
+        help="Start date.  If not supplied, will use "
+        "the end of the previously processed events.",
+    )
+    parser.add_argument(
+        "--stop",
+        help="Stop date. If not supplied, will use the"
+        "end of available telemetry minus 60 minutes.",
+    )
     parser.add_argument(
         "--data-root",
         default="./data",
@@ -1239,12 +1247,17 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
         # get the end of backorbit data from maude.  Put a retry around this
         # in case of intermittent failures.
         with maude_conf.set_temp("timeout", 5):
-            last_telem_date = retry_call(get_last_backorbit_date, tries=5, delay=5)
+            last_telem_date = retry_call(
+                get_last_backorbit_date, args=["AACCCDPT"], tries=5, delay=5
+            )
     else:
         # Just check for available cxc tccd telemetry
         _, last_telem_date = fetch.get_time_range("AACCCDPT", format="date")
 
-    stop = min(CxoTime(opt.stop).date, last_telem_date)
+    # Set a stop time from the supplied options or use the end of the available telemetry
+    # minus 60 minutes to be safe.  This is to avoid trying to process dwells that are still
+    # in progress or don't have complete data yet.
+    stop = min(CxoTime(opt.stop).date, (CxoTime(last_telem_date) - 60 * u.min).date)
 
     with fetch.data_source("cxc" if not opt.maude else "maude allow_subset=False"):
         with maude_conf.set_temp("timeout", 5):
