@@ -46,6 +46,16 @@ GSHEET_USER_URL = f"{url_start}/{DOC_ID}/edit?usp=sharing"
 
 LOGGER = basic_logger(__name__, level="INFO")
 
+import warnings
+
+# I'd like to handle these user warnings as errors
+# UserWarning: kernel_size exceeds volume extent: the volume will be zero-padded.
+warnings.filterwarnings(
+    "error",
+    category=UserWarning,
+    message="kernel_size exceeds volume extent: the volume will be zero-padded.",
+)
+
 
 def get_opt():
     parser = argparse.ArgumentParser(description="High Background event finder")
