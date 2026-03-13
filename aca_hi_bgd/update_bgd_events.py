@@ -1257,7 +1257,7 @@ def main(args=None):  # noqa: PLR0912, PLR0915 too many branches, too many state
     # Set a stop time from the supplied options or use the end of the available telemetry
     # minus 60 minutes to be safe.  This is to avoid trying to process dwells that are still
     # in progress or don't have complete data yet.
-    stop = min(CxoTime(opt.stop).date, (CxoTime(last_telem_date) - 60 * u.min).date)
+    stop = min(CxoTime(opt.stop), CxoTime(last_telem_date) - 60 * u.min)
 
     with fetch.data_source("cxc" if not opt.maude else "maude allow_subset=False"):
         with maude_conf.set_temp("timeout", 5):
